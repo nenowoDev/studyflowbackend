@@ -99,9 +99,10 @@ $app->post('/login', function (Request $request, Response $response) use ($secre
     }
 
     // Prepare and execute statement to find user by username
-    $stmt = $pdo->prepare("SELECT user_id, username, password_hash, role FROM users WHERE username = ?"); // Fetch password_hash
+    // SELECT all relevant user information that you want to return
+    $stmt = $pdo->prepare("SELECT user_id, username, password_hash, role, email, full_name, matric_number, pin, profile_picture FROM users WHERE username = ?");
     $stmt->execute([$username]);
-    $user = $stmt->fetch();
+    $user = $stmt->fetch(PDO::FETCH_ASSOC); // Fetch as associative array
 
     // Verify user and password (using plain text for simplicity as in original,
     // but password_verify() with hashed passwords is highly recommended for production)
@@ -122,7 +123,24 @@ $app->post('/login', function (Request $request, Response $response) use ($secre
         // Encode the payload into a JWT token
         $token = JWT::encode($payload, $secretKey, 'HS256');
 
-        $response->getBody()->write(json_encode(['token' => $token]));
+        // Prepare user information to be returned in the response
+        // Remove sensitive data like password_hash
+        $userInfo = [
+            'user_id' => $user['user_id'],
+            'username' => $user['username'],
+            'role' => $user['role'],
+            'email' => $user['email'],
+            'full_name' => $user['full_name'],
+            'matric_number' => $user['matric_number'],
+            'pin' => $user['pin'],
+            'profile_picture' => $user['profile_picture']
+        ];
+
+        // Return both the token and user information
+        $response->getBody()->write(json_encode([
+            'token' => $token,
+            'user' => $userInfo // Include user information here
+        ]));
         return $response->withHeader('Content-Type', 'application/json');
     }
 
@@ -130,7 +148,6 @@ $app->post('/login', function (Request $request, Response $response) use ($secre
     $response->getBody()->write(json_encode(['error' => 'Invalid credentials']));
     return $response->withStatus(401)->withHeader('Content-Type', 'application/json');
 });
-
 
 // --- User Routes ---
 $app->group('/users', function ($app) use ($userController) {
