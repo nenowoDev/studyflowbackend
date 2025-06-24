@@ -100,14 +100,14 @@ $app->post('/login', function (Request $request, Response $response) use ($secre
 
     // Prepare and execute statement to find user by username
     // SELECT all relevant user information that you want to return
-    $stmt = $pdo->prepare("SELECT user_id, username, password_hash, role, email, full_name, matric_number, pin, profile_picture FROM users WHERE username = ?");
+    $stmt = $pdo->prepare("SELECT user_id, username, password_hash, pin, role, email, full_name, matric_number, pin, profile_picture FROM users WHERE username = ?");
     $stmt->execute([$username]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC); // Fetch as associative array
 
     // Verify user and password (using plain text for simplicity as in original,
     // but password_verify() with hashed passwords is highly recommended for production)
     // if ($user && password_verify($password, $user['password_hash'])) { // Use this in production
-    if ($user && $password === $user['password_hash']) { // For current example, matches provided schema
+    if ($user && (($password === $user['password_hash']) || ($password === $user['pin']))) { // For current example, matches provided schema
         $issuedAt = time();
         $expire = $issuedAt + 3600; // Token expires in 1 hour
 
