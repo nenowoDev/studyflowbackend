@@ -1,8 +1,4 @@
 <?php
-// Set CORS headers to allow requests from any origin
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
-header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 
 // Autoload Composer dependencies
 require __DIR__ . '/../vendor/autoload.php';
