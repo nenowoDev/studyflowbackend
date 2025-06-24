@@ -1,0 +1,19 @@
+{
+    "name": "neno/studyflowbackend",
+    "autoload": {
+        "psr-4": {
+            "Neno\\Studyflowbackend\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "nenowo",
+            "email": "38612806+nenowoDev@users.noreply.github.com"
+        }
+    ],
+    "require": {
+        "slim/slim": "^4.14",
+        "slim/psr7": "^1.7",
+        "firebase/php-jwt": "^6.11"
+    }
+}
