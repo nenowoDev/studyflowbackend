@@ -27,6 +27,7 @@ require __DIR__ . '/../src/Controllers/AdvisorNoteController.php';
 use Slim\Factory\AppFactory;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Message\ResponseInterface as Response;
+use Psr\Http\Server\RequestHandlerInterface;
 use Firebase\JWT\JWT;
 use App\Controllers\ProductController;
 use App\Controllers\UserController;
@@ -45,6 +46,29 @@ $secretKey = "my-secret-key";
 
 // Create a new Slim app instance
 $app = AppFactory::create();
+
+
+$app->addBodyParsingMiddleware(); // required for POST/PUT/PATCH
+$app->add(function (Request $request, RequestHandlerInterface $handler): Response {
+    $response = $handler->handle($request);
+    $origin = $request->getHeaderLine('Origin');
+
+    $response = $response
+        ->withHeader('Access-Control-Allow-Origin', $origin ?: '*')
+        ->withHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept, Origin, Authorization')
+        ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
+        ->withHeader('Access-Control-Allow-Credentials', 'true');
+
+    // Respond to OPTIONS preflight request immediately
+    if (strtoupper($request->getMethod()) === 'OPTIONS') {
+        return $response->withStatus(204);
+    }
+
+    return $response;
+});
+$app->options('/{routes:.+}', function (Request $request, Response $response) {
+    return $response;
+});
 
 // Instantiate the JWT Middleware with the secret key
 $jwtMiddleware = new JwtMiddleware($secretKey);
