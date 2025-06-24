@@ -15,7 +15,83 @@ class StudentMarkController
     {
         $this->pdo = $pdo;
     }
+   /**
+     * Get anonymized student marks for peer comparison
+     * Students can see aggregated data without individual student identities (except their own)
+     * Lecturers and admins can see full details
+     *
+     * @param Request $request The request object.
+     * @param Response $response The response object.
+     * @return Response The response object with mark data or error.
+     */
+    public function getAllStudentMarksForPeerComparison(Request $request, Response $response): Response
+    {
+        // Get current user info from JWT token or session
+        $currentUser = $request->getAttribute('user'); // Assuming middleware sets this
+        $userRole = $currentUser['role'] ?? 'student';
+        $currentStudentId = $currentUser['user_id'] ?? null;
+        
+        $query = "SELECT sm.*, 
+                         u.user_id as student_id,
+                         u.full_name AS student_name, 
+                         c.course_name, 
+                         ac.component_name, 
+                         recorded_by_user.full_name AS recorded_by_name
+                  FROM student_marks sm
+                  JOIN enrollments e ON sm.enrollment_id = e.enrollment_id
+                  JOIN users u ON e.student_id = u.user_id
+                  JOIN courses c ON e.course_id = c.course_id
+                  JOIN assessment_components ac ON sm.component_id = ac.component_id
+                  JOIN users recorded_by_user ON sm.recorded_by = recorded_by_user.user_id
+                  ORDER BY c.course_name, ac.component_name, sm.mark_obtained DESC";
+        
+        try {
+            $stmt = $this->pdo->prepare($query);
+            $stmt->execute();
+            $marks = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            // If user is a student, anonymize other students' data
+            if ($userRole === 'student') {
+                $anonymizedMarks = [];
+                $studentCounter = 1;
+                $anonymizationMap = [];
+                
+                foreach ($marks as $mark) {
+                    $studentId = $mark['student_id'];
+                    
+                    // Keep current student's data identifiable
+                    if ($studentId == $currentStudentId) {
+                        $mark['student_name'] = $mark['student_name']; // Keep real name
+                        $mark['is_current_user'] = true;
+                    } else {
+                        // Anonymize other students
+                        if (!isset($anonymizationMap[$studentId])) {
+                            $anonymizationMap[$studentId] = "Student " . $studentCounter;
+                            $studentCounter++;
+                        }
+                        $mark['student_name'] = $anonymizationMap[$studentId];
+                        $mark['is_current_user'] = false;
+                    }
+                    
+                    // Remove sensitive identifiable information
+                    unset($mark['student_id']);
+                    unset($mark['recorded_by_name']);
+                    
+                    $anonymizedMarks[] = $mark;
+                }
+                
+                $marks = $anonymizedMarks;
+            }
+
+            // Return the marks as a JSON response
+            $response->getBody()->write(json_encode($marks));
+            return $response->withHeader('Content-Type', 'application/json');
+        } catch (PDOException $e) {
+            error_log("Error fetching student marks for peer comparison: " . $e->getMessage());
+            $response->getBody()->write(json_encode(['error' => 'Database error: Could not retrieve student marks.']));
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
     /**
      * Get all student marks.
      * Accessible to admin; lecturers for their courses; students for their own marks.

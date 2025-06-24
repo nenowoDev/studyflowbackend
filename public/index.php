@@ -185,6 +185,11 @@ $app->group('/assessment-components', function ($app) use ($assessmentComponentC
     $app->delete('/{id}', [$assessmentComponentController, 'deleteAssessmentComponent']); // Admin or Lecturer (own course)
 })->add($jwtMiddleware);
 
+// Route for getting all student marks for peer comparison
+$app->get('/all-student-marks', function (Request $request, Response $response) use ($studentMarkController) {
+    return $studentMarkController->getAllStudentMarksForPeerComparison($request, $response);
+})->add($jwtMiddleware); // Add authentication middleware
+
 // --- Student Mark Routes ---
 $app->group('/student-marks', function ($app) use ($studentMarkController) {
     $app->get('', [$studentMarkController, 'getAllStudentMarks']); // Admin, Lecturer (own course), Student (self)
