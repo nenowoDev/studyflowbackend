@@ -42,6 +42,7 @@ $secretKey = "my-secret-key";
 
 // Create a new Slim app instance
 $app = AppFactory::create();
+$app->addErrorMiddleware(true, true, true);
 
 
 $app->addBodyParsingMiddleware(); // required for POST/PUT/PATCH
@@ -82,6 +83,12 @@ $studentMarkController = new StudentMarkController($pdo);
 $remarkRequestController = new RemarkRequestController($pdo);
 $advisorStudentController = new AdvisorStudentController($pdo);
 $advisorNoteController = new AdvisorNoteController($pdo);
+
+$app->get('/', function (Request $request, Response $response) {
+    // Correct way to write a response in Slim 4.x
+    $response->getBody()->write('Hello, World!');
+    return $response;
+});
 
 
 // --- Publicly accessible route ---
