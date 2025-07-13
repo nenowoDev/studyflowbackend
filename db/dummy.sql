@@ -1,32 +1,31 @@
 
 -- --- Dummy Data for `users` table ---
--- Passwords are hashed 'password'
 
 -- Admin
 INSERT INTO `users` (`username`, `password_hash`, `role`, `full_name`, `email`, `matric_number`, `pin`, `profile_picture`) VALUES
-('admin01', '$2y$10$w09lF7x3O4.1Z6zY7xY2eO.W4.qQ.w5.e9f0h1i2j3k4l5m6n7o8p9', 'admin', 'Admin User', 'admin@example.com', NULL, NULL, 'https://placehold.co/128x128/9CA3AF/1F2937?text=Admin');
+('admin01', '1234', 'admin', 'Admin User', 'admin@example.com', NULL, NULL, 'https://placehold.co/128x128/9CA3AF/1F2937?text=Admin');
 
 -- Lecturers
 INSERT INTO `users` (`username`, `password_hash`, `role`, `full_name`, `email`, `matric_number`, `pin`, `profile_picture`) VALUES
-('lecturer01', '$2y$10$w09lF7x3O4.1Z6zY7xY2eO.W4.qQ.w5.e9f0h1i2j3k4l5m6n7o8p9', 'lecturer', 'Dr. Alice Smith', 'alice.smith@university.edu', NULL, NULL, 'https://placehold.co/128x128/90CDF4/2B6CB0?text=A.S.');
+('lecturer01', '1234', 'lecturer', 'Dr. Alice Smith', 'alice.smith@university.edu', NULL, NULL, 'https://placehold.co/128x128/90CDF4/2B6CB0?text=A.S.');
 INSERT INTO `users` (`username`, `password_hash`, `role`, `full_name`, `email`, `matric_number`, `pin`, `profile_picture`) VALUES
-('lecturer02', '$2y$10$w09lF7x3O4.1Z6zY7xY2eO.W4.qQ.w5.e9f0h1i2j3k4l5m6n7o8p9', 'lecturer', 'Prof. Bob Johnson', 'bob.j@university.edu', NULL, NULL, 'https://placehold.co/128x128/A7F3D0/065F46?text=B.J.');
+('lecturer02', '1234', 'lecturer', 'Prof. Bob Johnson', 'bob.j@university.edu', NULL, NULL, 'https://placehold.co/128x128/A7F3D0/065F46?text=B.J.');
 
 -- Academic Advisors
 INSERT INTO `users` (`username`, `password_hash`, `role`, `full_name`, `email`, `matric_number`, `pin`, `profile_picture`) VALUES
-('advisor01', '$2y$10$w09lF7x3O4.1Z6zY7xY2eO.W4.qQ.w5.e9f0h1i2j3k4l5m6n7o8p9', 'advisor', 'Ms. Carol White', 'carol.w@university.edu', NULL, NULL, 'https://placehold.co/128x128/FDE68A/92400E?text=C.W.');
+('advisor01', '1234', 'advisor', 'Ms. Carol White', 'carol.w@university.edu', NULL, NULL, 'https://placehold.co/128x128/FDE68A/92400E?text=C.W.');
 INSERT INTO `users` (`username`, `password_hash`, `role`, `full_name`, `email`, `matric_number`, `pin`, `profile_picture`) VALUES
-('advisor02', '$2y$10$w09lF7x3O4.1Z6zY7xY2eO.W4.qQ.w5.e9f0h1i2j3k4l5m6n7o8p9', 'advisor', 'Mr. David Green', 'david.g@university.edu', NULL, NULL, 'https://placehold.co/128x128/D1FAE5/065F46?text=D.G.');
+('advisor02', '1234', 'advisor', 'Mr. David Green', 'david.g@university.edu', NULL, NULL, 'https://placehold.co/128x128/D1FAE5/065F46?text=D.G.');
 
 -- Students
 INSERT INTO `users` (`username`, `password_hash`, `role`, `full_name`, `email`, `matric_number`, `pin`, `profile_picture`) VALUES
-('student1', '$2y$10$w09lF7x3O4.1Z6zY7xY2eO.W4.qQ.w5.e9f0h1i2j3k4l5m6n7o8p9', 'student', 'Emily Brown', 'emily.b@student.university.edu', 'A20EC0001', '1234', 'https://placehold.co/128x128/FECACA/B91C1C?text=E.B.');
+('student1', '1234', 'student', 'Emily Brown', 'emily.b@student.university.edu', 'A20EC0001', '1234', 'https://placehold.co/128x128/FECACA/B91C1C?text=E.B.');
 INSERT INTO `users` (`username`, `password_hash`, `role`, `full_name`, `email`, `matric_number`, `pin`, `profile_picture`) VALUES
-('student2', '$2y$10$w09lF7x3O4.1Z6zY7xY2eO.W4.qQ.w5.e9f0h1i2j3k4l5m6n7o8p9', 'student', 'Frank Miller', 'frank.m@student.university.edu', 'A20EC0002', '5678', 'https://placehold.co/128x128/DBEAFE/1E40AF?text=F.M.');
+('student2', '1234', 'student', 'Frank Miller', 'frank.m@student.university.edu', 'A20EC0002', '5678', 'https://placehold.co/128x128/DBEAFE/1E40AF?text=F.M.');
 INSERT INTO `users` (`username`, `password_hash`, `role`, `full_name`, `email`, `matric_number`, `pin`, `profile_picture`) VALUES
-('student3', '$2y$10$w09lF7x3O4.1Z6zY7xY2eO.W4.qQ.w5.e9f0h1i2j3k4l5m6n7o8p9', 'student', 'Grace Davis', 'grace.d@student.university.edu', 'A20EC0003', '9012', 'https://placehold.co/128x128/D1FAE5/065F46?text=G.D.');
+('student3', '1234', 'student', 'Grace Davis', 'grace.d@student.university.edu', 'A20EC0003', '9012', 'https://placehold.co/128x128/D1FAE5/065F46?text=G.D.');
 INSERT INTO `users` (`username`, `password_hash`, `role`, `full_name`, `email`, `matric_number`, `pin`, `profile_picture`) VALUES
-('student4', '$2y$10$w09lF7x3O4.1Z6zY7xY2eO.W4.qQ.w5.e9f0h1i2j3k4l5m6n7o8p9', 'student', 'Henry Wilson', 'henry.w@student.university.edu', 'A20EC0004', '3456', 'https://placehold.co/128x128/FFEDD5/9A3412?text=H.W.');.university.edu', 'A20EC0004', '3456', 'https://placehold.co/128x128/FFEDD5/9A3412?text=H.W.');
+('student4', '1234', 'student', 'Henry Wilson', 'henry.w@student.university.edu', 'A20EC0004', '3456', 'https://placehold.co/128x128/FFEDD5/9A3412?text=H.W.');
 
 -- --- Dummy Data for `courses` table ---
 -- Assuming lecturer01 (user_id 2) and lecturer02 (user_id 3)

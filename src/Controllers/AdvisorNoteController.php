@@ -186,8 +186,7 @@ class AdvisorNoteController
                 $data['meeting_date'] ?? null // Meeting date is optional
             ]);
 
-            $response->getBody()->write(json_encode(['message' => 'Advisor note added successfully', 'note_id' => $this->pdo->lastInsertId()]));
-
+            
             $this->notificationController->createNotification(
                 $data["advisor_student_id"],
                 "New Advisor Notes for you",
@@ -195,8 +194,9 @@ class AdvisorNoteController
                 "Advisor Notes",
                 "{$this->pdo->lastInsertId()}"
             );
-
-
+            
+            
+            $response->getBody()->write(json_encode(['message' => 'Advisor note added successfully', 'note_id' => $this->pdo->lastInsertId()]));
             return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
         } catch (PDOException $e) {
             error_log("Error adding advisor note: " . $e->getMessage());
@@ -306,8 +306,7 @@ class AdvisorNoteController
                 return $response->withHeader('Content-Type', 'application/json');
             }
 
-            $response->getBody()->write(json_encode(['message' => 'Advisor note updated successfully']));
-
+            
             $this->notificationController->createNotification(
                 $data["advisor_student_id"],
                 "Advisor Notes updated",
@@ -315,7 +314,8 @@ class AdvisorNoteController
                 "Advisor Notes",
                 "{$noteId}"
             );
-
+            
+            $response->getBody()->write(json_encode(['message' => 'Advisor note updated successfully']));
             return $response->withHeader('Content-Type', 'application/json');
         } catch (PDOException $e) {
             error_log("Error updating advisor note ID {$noteId}: " . $e->getMessage());

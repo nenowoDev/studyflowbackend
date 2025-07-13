@@ -88,7 +88,7 @@ CREATE TABLE `remark_requests` (
 CREATE TABLE `advisor_student` (
     `advisor_student_id` INT AUTO_INCREMENT PRIMARY KEY,
     `advisor_id` INT NOT NULL ,
-    `student_id` INT NOT NULL ,
+    `student_id` INT NOT NULL UNIQUE ,
     `assigned_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (`advisor_id`, `student_id`), -- Ensures a unique advisor-student pairing
     FOREIGN KEY (`advisor_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE,

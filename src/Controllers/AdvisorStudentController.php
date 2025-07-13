@@ -212,7 +212,7 @@ class AdvisorStudentController
             return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
         } catch (PDOException $e) {
             if ($e->getCode() == '23000') { // Unique constraint violation
-                $errorMessage = 'This advisor is already assigned to this student.';
+                $errorMessage = 'This student is already assigned to an advisor. A student can only have one advisor.';
             } else {
                 $errorMessage = 'Database error: Could not add advisor-student assignment.';
             }
@@ -400,7 +400,7 @@ class AdvisorStudentController
             return $response->withHeader('Content-Type', 'application/json');
         } catch (PDOException $e) {
             if ($e->getCode() == '23000') {
-                $errorMessage = 'This advisor is already assigned to this student with the new IDs.';
+                $errorMessage = 'The assigned student is already associated with another advisor, or the new advisor is already assigned to this student. A student can only have one advisor.';
             } else {
                 $errorMessage = 'Database error: Could not update advisor-student assignment.';
             }
@@ -434,16 +434,72 @@ class AdvisorStudentController
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
+        // --- 1. Fetch CURRENT assignment details and user full names BEFORE deletion ---
+        $advisorId = null;
+        $studentId = null;
+        $advisorFullName = '';
+        $studentFullName = '';
+
+        try {
+            $stmtCurrent = $this->pdo->prepare("
+                SELECT 
+                    ast.advisor_id, 
+                    ast.student_id,
+                    adv.full_name AS advisor_full_name,
+                    stu.full_name AS student_full_name
+                FROM advisor_student ast
+                JOIN users adv ON ast.advisor_id = adv.user_id
+                JOIN users stu ON ast.student_id = stu.user_id
+                WHERE ast.advisor_student_id = ?
+            ");
+            $stmtCurrent->execute([$assignmentId]);
+            $currentAssignment = $stmtCurrent->fetch(PDO::FETCH_ASSOC);
+
+            if (!$currentAssignment) {
+                // If assignment not found, return 404 immediately
+                $response->getBody()->write(json_encode(['error' => 'Advisor-student assignment not found.']));
+                return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+            }
+
+            $advisorId = $currentAssignment['advisor_id'];
+            $studentId = $currentAssignment['student_id'];
+            $advisorFullName = $currentAssignment['advisor_full_name'];
+            $studentFullName = $currentAssignment['student_full_name'];
+
+        } catch (PDOException $e) {
+            error_log("Error fetching advisor-student assignment details for deletion (ID: {$assignmentId}): " . $e->getMessage());
+            $response->getBody()->write(json_encode(['error' => 'Database error: Could not retrieve assignment details for deletion.']));
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+
         try {
             $stmt = $this->pdo->prepare("DELETE FROM advisor_student WHERE advisor_student_id = ?");
             $stmt->execute([$assignmentId]);
 
             if ($stmt->rowCount() === 0) {
-                $response->getBody()->write(json_encode(['error' => 'Advisor-student assignment not found.']));
+                $response->getBody()->write(json_encode(['error' => 'Advisor-student assignment not found or already deleted.']));
                 return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
             }
 
-            $response->getBody()->write(json_encode(['message' => 'Advisor-student assignment deleted successfully']));
+            $adminFullName = $jwt->full_name ?? 'An Administrator'; // Get admin's name from JWT
+
+            $this->notificationController->createNotification(
+                $advisorId,
+                "Advisee Unassigned",
+                "{$adminFullName} has unassigned {$studentFullName} from your advisee list. They are no longer your advisee.",
+                "advisor_unassignment", 
+                $assignmentId 
+            );
+
+            $this->notificationController->createNotification(
+                $studentId,
+                "Academic Advisor Unassigned",
+                "{$adminFullName} has unassigned you from {$advisorFullName}",
+                "Advisor Assignment",
+                $assignmentId
+            );
+
+            $response->getBody()->write(json_encode(['message' => 'Advisor-student assignment deleted successfully.']));
             return $response->withHeader('Content-Type', 'application/json');
         } catch (PDOException $e) {
             error_log("Error deleting advisor-student assignment ID {$assignmentId}: " . $e->getMessage());
