@@ -160,6 +160,8 @@ $app->group('/users', function ($app) use ($userController) {
     $app->post('', [$userController, 'addUser']); // Admin only
     $app->put('/{id}', [$userController, 'updateUser']); // Admin only
     $app->delete('/{id}', [$userController, 'deleteUser']); // Admin only
+    $app->get('/lecturer/{username}/students', [$userController, 'getStudentsByLecturer']);
+
 })->add($jwtMiddleware);
 
 // --- Course Routes ---

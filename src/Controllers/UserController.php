@@ -171,7 +171,7 @@ class UserController
         $userId = $args['id'];
         $jwt = $request->getAttribute('jwt');
 
-        if (!isset($jwt->role) || $jwt->role !== 'admin') {
+        if (!isset($jwt->role) || $jwt->role !== 'admin' || 'lecturer') {
             $response->getBody()->write(json_encode(['error' => 'Access denied: admin only']));
             return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
         }
@@ -305,4 +305,57 @@ class UserController
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
         }
     }
+    /**
+ * Get students assigned to a specific lecturer.
+ *
+ * @param Request $request The request object.
+ * @param Response $response The response object.
+ * @param array $args Route arguments (e.g., username).
+ * @return Response The response object with student data or error.
+ */
+public function getStudentsByLecturer(Request $request, Response $response, array $args): Response
+{
+    $username = $args['username']; // Get lecturer username
+    try {
+        // Query to get the lecturer's user ID based on their username
+        $stmt = $this->pdo->prepare("SELECT user_id FROM users WHERE username = ?");
+        $stmt->execute([$username]);
+        $lecturer = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$lecturer) {
+            $response->getBody()->write(json_encode(['error' => 'Lecturer not found.']));
+            return $response->withStatus(404);
+        }
+
+        $lecturerId = $lecturer['user_id'];
+
+        // Query to fetch all students who are enrolled in courses taught by this lecturer
+        $stmt = $this->pdo->prepare("
+            SELECT u.username, u.full_name, u.matric_number, c.course_code
+            FROM users u
+            JOIN enrollments e ON u.user_id = e.student_id
+            JOIN courses c ON e.course_id = c.course_id
+            WHERE c.lecturer_id = ? AND u.role = 'student'
+        ");
+        $stmt->execute([$lecturerId]);
+
+        $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (!$students) {
+            $response->getBody()->write(json_encode(['error' => 'No students found for this lecturer.']));
+            return $response->withStatus(404);
+        }
+
+        $response->getBody()->write(json_encode(['students' => $students]));
+        return $response->withHeader('Content-Type', 'application/json');
+
+    } catch (PDOException $e) {
+        error_log("Error fetching students for lecturer {$username}: " . $e->getMessage());
+        $response->getBody()->write(json_encode(['error' => 'Failed to fetch students.'])); 
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+}
+
+
+
 }
