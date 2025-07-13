@@ -78,7 +78,7 @@ $enrollmentController = new EnrollmentController($pdo);
 $assessmentComponentController = new AssessmentComponentController($pdo);
 $studentMarkController = new StudentMarkController($pdo);
 $remarkRequestController = new RemarkRequestController($pdo);
-$advisorStudentController = new AdvisorStudentController($pdo);
+$advisorStudentController = new AdvisorStudentController($pdo,$notificationController);
 $advisorNoteController = new AdvisorNoteController($pdo,$notificationController);
 
 $app->get('/', function (Request $request, Response $response) {

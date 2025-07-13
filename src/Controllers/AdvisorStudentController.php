@@ -10,10 +10,12 @@ use PDOException;
 class AdvisorStudentController
 {
     private PDO $pdo;
+    private NotificationController $notificationController;
 
-    public function __construct(PDO $pdo)
+    public function __construct(PDO $pdo, NotificationController $notificationController)
     {
         $this->pdo = $pdo;
+        $this->notificationController = $notificationController;
     }
 
     /**
@@ -110,10 +112,10 @@ class AdvisorStudentController
             }
 
             // Authorization check
-            if ($userRole === 'advisor' && (string)$assignment['advisor_id'] !== (string)$userId) {
+            if ($userRole === 'advisor' && (string) $assignment['advisor_id'] !== (string) $userId) {
                 $response->getBody()->write(json_encode(['error' => 'Access denied: You can only view your own assigned students.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
-            } elseif ($userRole === 'student' && (string)$assignment['student_id'] !== (string)$userId) {
+            } elseif ($userRole === 'student' && (string) $assignment['student_id'] !== (string) $userId) {
                 $response->getBody()->write(json_encode(['error' => 'Access denied: You can only view your own advisor assignment.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             } elseif ($userRole !== 'admin') {
@@ -157,19 +159,23 @@ class AdvisorStudentController
 
         // Validate advisor_id and student_id exist and have correct roles
         try {
-            $stmtAdvisor = $this->pdo->prepare("SELECT user_id FROM users WHERE user_id = ? AND role = 'advisor'");
+            $stmtAdvisor = $this->pdo->prepare("SELECT user_id, full_name FROM users WHERE user_id = ? AND role = 'advisor'");
             $stmtAdvisor->execute([$data['advisor_id']]);
-            if (!$stmtAdvisor->fetch()) {
+            $advisor = $stmtAdvisor->fetch(PDO::FETCH_ASSOC);
+            if (!$advisor) {
                 $response->getBody()->write(json_encode(['error' => 'Invalid advisor ID or user is not an advisor.']));
                 return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
             }
+            $advisorFullName = $advisor['full_name'];
 
-            $stmtStudent = $this->pdo->prepare("SELECT user_id FROM users WHERE user_id = ? AND role = 'student'");
+            $stmtStudent = $this->pdo->prepare("SELECT user_id, full_name FROM users WHERE user_id = ? AND role = 'student'");
             $stmtStudent->execute([$data['student_id']]);
-            if (!$stmtStudent->fetch()) {
+            $student = $stmtStudent->fetch(PDO::FETCH_ASSOC);
+            if (!$student) {
                 $response->getBody()->write(json_encode(['error' => 'Invalid student ID or user is not a student.']));
                 return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
             }
+            $studentFullName = $student['full_name'];
         } catch (PDOException $e) {
             error_log("Error validating advisor/student IDs for assignment: " . $e->getMessage());
             $response->getBody()->write(json_encode(['error' => 'Database error during ID validation.']));
@@ -184,6 +190,25 @@ class AdvisorStudentController
             ]);
 
             $response->getBody()->write(json_encode(['message' => 'Advisor-student assignment added successfully', 'advisor_student_id' => $this->pdo->lastInsertId()]));
+
+            $lastpdo = $this->pdo->lastInsertId();
+
+            $this->notificationController->createNotification(
+                $data["advisor_id"],
+                "New Advisee!",
+                "{$jwt->user} has assigned you {$studentFullName} as a new Advisee!",
+                "Advisee Assignment",
+                "{$lastpdo}"
+            );
+
+            $this->notificationController->createNotification(
+                $data["student_id"],
+                "New Advisor!",
+                "{$jwt->user} has assigned you {$advisorFullName} as your new Advisor!",
+                "Advisor Assignment",
+                "{$lastpdo}"
+            );
+
             return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
         } catch (PDOException $e) {
             if ($e->getCode() == '23000') { // Unique constraint violation
@@ -228,37 +253,85 @@ class AdvisorStudentController
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
+        $originalAdvisorId = null;
+        $originalStudentId = null;
+        $originalAdvisorFullName = '';
+        $originalStudentFullName = '';
+
+        try {
+            $stmtCurrent = $this->pdo->prepare("
+                SELECT 
+                    ast.advisor_id, 
+                    ast.student_id,
+                    adv.full_name AS advisor_full_name,
+                    stu.full_name AS student_full_name
+                FROM advisor_student ast
+                JOIN users adv ON ast.advisor_id = adv.user_id
+                JOIN users stu ON ast.student_id = stu.user_id
+                WHERE ast.advisor_student_id = ?
+            ");
+            $stmtCurrent->execute([$assignmentId]);
+            $currentAssignment = $stmtCurrent->fetch(PDO::FETCH_ASSOC);
+
+            if (!$currentAssignment) {
+                $response->getBody()->write(json_encode(['error' => 'Advisor-student assignment not found.']));
+                return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+            }
+
+            $originalAdvisorId = $currentAssignment['advisor_id'];
+            $originalStudentId = $currentAssignment['student_id'];
+            $originalAdvisorFullName = $currentAssignment['advisor_full_name'];
+            $originalStudentFullName = $currentAssignment['student_full_name'];
+
+        } catch (PDOException $e) {
+            error_log("Error fetching current advisor-student assignment details for ID {$assignmentId}: " . $e->getMessage());
+            $response->getBody()->write(json_encode(['error' => 'Database error: Could not retrieve current assignment details.']));
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+
         $setClauses = [];
         $params = [];
+        $newAdvisorId = $originalAdvisorId; 
+        $newStudentId = $originalStudentId; 
+        $newAdvisorFullName = $originalAdvisorFullName; 
+        $newStudentFullName = $originalStudentFullName; 
 
-        if (isset($data['advisor_id'])) {
-            $stmtAdvisor = $this->pdo->prepare("SELECT user_id FROM users WHERE user_id = ? AND role = 'advisor'");
-            $stmtAdvisor->execute([$data['advisor_id']]);
-            if (!$stmtAdvisor->fetch()) {
+        // Handle advisor_id update
+        if (isset($data['advisor_id']) && $data['advisor_id'] !== $originalAdvisorId) {
+            $stmtNewAdvisor = $this->pdo->prepare("SELECT user_id, full_name FROM users WHERE user_id = ? AND role = 'advisor'");
+            $stmtNewAdvisor->execute([$data['advisor_id']]);
+            $newAdvisor = $stmtNewAdvisor->fetch(PDO::FETCH_ASSOC);
+            if (!$newAdvisor) {
                 $response->getBody()->write(json_encode(['error' => 'Invalid new advisor ID or user is not an advisor.']));
                 return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
             }
+            $newAdvisorId = $newAdvisor['user_id'];
+            $newAdvisorFullName = $newAdvisor['full_name'];
             $setClauses[] = 'advisor_id = ?';
-            $params[] = $data['advisor_id'];
+            $params[] = $newAdvisorId;
         }
-        if (isset($data['student_id'])) {
-            $stmtStudent = $this->pdo->prepare("SELECT user_id FROM users WHERE user_id = ? AND role = 'student'");
-            $stmtStudent->execute([$data['student_id']]);
-            if (!$stmtStudent->fetch()) {
+
+
+        if (isset($data['student_id']) && $data['student_id'] !== $originalStudentId) {
+            $stmtNewStudent = $this->pdo->prepare("SELECT user_id, full_name FROM users WHERE user_id = ? AND role = 'student'");
+            $stmtNewStudent->execute([$data['student_id']]);
+            $newStudent = $stmtNewStudent->fetch(PDO::FETCH_ASSOC);
+            if (!$newStudent) {
                 $response->getBody()->write(json_encode(['error' => 'Invalid new student ID or user is not a student.']));
                 return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
             }
+            $newStudentId = $newStudent['user_id'];
+            $newStudentFullName = $newStudent['full_name'];
             $setClauses[] = 'student_id = ?';
-            $params[] = $data['student_id'];
+            $params[] = $newStudentId;
         }
 
         if (empty($setClauses)) {
-            $response->getBody()->write(json_encode(['error' => 'No valid fields provided for update.']));
-            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+            $response->getBody()->write(json_encode(['message' => 'No valid fields provided for update or no changes detected.']));
+            return $response->withStatus(200)->withHeader('Content-Type', 'application/json'); 
         }
 
-        $params[] = $assignmentId; // Add the assignment ID for the WHERE clause
-
+        $params[] = $assignmentId; 
         $query = "UPDATE advisor_student SET " . implode(', ', $setClauses) . " WHERE advisor_student_id = ?";
 
         try {
@@ -266,8 +339,61 @@ class AdvisorStudentController
             $stmt->execute($params);
 
             if ($stmt->rowCount() === 0) {
-                $response->getBody()->write(json_encode(['error' => 'Advisor-student assignment not found or no changes made.']));
+                $response->getBody()->write(json_encode(['error' => 'Advisor-student assignment not found or no actual changes made.']));
                 return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+            }
+
+            // --- 4. Send Notifications based on changes ---
+            $adminFullName = $jwt->full_name ?? 'An Administrator';
+
+            // Scenario 1: Advisor changed for the original student
+            if ($newAdvisorId !== $originalAdvisorId) {
+                // Notify NEW Advisor
+                $this->notificationController->createNotification(
+                    $newAdvisorId,
+                    "New Advisee Assigned!",
+                    "{$adminFullName} has assigned {$originalStudentFullName} as your new advisee.",
+                    "Advisor Assignment",
+                    $assignmentId
+                );
+                // Notify OLD Advisor (if different from new)
+                $this->notificationController->createNotification(
+                    $originalAdvisorId,
+                    "Advisee Reassigned",
+                    "{$adminFullName} has reassigned {$originalStudentFullName} from you. They are now advised by {$newAdvisorFullName}.",
+                    "Advisor Assignment",
+                    $assignmentId
+                );
+                // Notify Student about advisor change
+                $this->notificationController->createNotification(
+                    $originalStudentId, // Student ID remains the same here
+                    "Your Advisor Has Changed",
+                    "{$adminFullName} has updated your advisor from {$originalAdvisorFullName} to {$newAdvisorFullName}.",
+                    "Advisor Assignment",
+                    $assignmentId
+                );
+            }
+
+            // Scenario 2: Student changed for the original advisor
+            if ($newStudentId !== $originalStudentId) {
+                // Notify NEW Student
+                $this->notificationController->createNotification(
+                    $newStudentId,
+                    "New Academic Advisor Assigned!",
+                    "{$adminFullName} has assigned {$originalAdvisorFullName} as your new Academic Advisor.",
+                    "advisor_assignment_change",
+                    $assignmentId
+                );
+
+                if ($newAdvisorId === $originalAdvisorId) {
+                    $this->notificationController->createNotification(
+                        $originalAdvisorId,
+                        "Advisee Reassigned",
+                        "{$adminFullName} has updated your advisee for this slot from {$originalStudentFullName} to {$newStudentFullName}.",
+                        "advisor_assignment_change",
+                        $assignmentId
+                    );
+                }
             }
 
             $response->getBody()->write(json_encode(['message' => 'Advisor-student assignment updated successfully']));
