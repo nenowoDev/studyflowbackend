@@ -73,7 +73,7 @@ $pdo = getPDO();
 $notificationController = new NotificationController($pdo);
 
 $userController = new UserController($pdo);
-$courseController = new CourseController($pdo);
+$courseController = new CourseController($pdo,$notificationController);
 $enrollmentController = new EnrollmentController($pdo);
 $assessmentComponentController = new AssessmentComponentController($pdo);
 $studentMarkController = new StudentMarkController($pdo);

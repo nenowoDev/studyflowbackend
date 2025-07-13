@@ -10,10 +10,12 @@ use PDOException;
 class CourseController
 {
     private PDO $pdo;
+    private NotificationController $notificationController;
 
-    public function __construct(PDO $pdo)
+    public function __construct(PDO $pdo, NotificationController $notificationController)
     {
         $this->pdo = $pdo;
+        $this->notificationController = $notificationController;
     }
 
     /**
@@ -102,7 +104,7 @@ class CourseController
 
         // Authorization check
         // Admin can assign any lecturer. Lecturers can only assign themselves.
-        if ($userRole === 'lecturer' && (string)$data['lecturer_id'] !== (string)$userId) {
+        if ($userRole === 'lecturer' && (string) $data['lecturer_id'] !== (string) $userId) {
             $response->getBody()->write(json_encode(['error' => 'Access denied: Lecturers can only assign courses to themselves.']));
             return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
         } elseif ($userRole !== 'admin' && $userRole !== 'lecturer') {
@@ -110,9 +112,10 @@ class CourseController
             return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
         }
 
-        // Validate if lecturer_id exists and is a lecturer role
+        // Validate if lecturer_id exists and is a lecturer role, and fetch full_name
+        $lecturerFullName = ''; 
         try {
-            $stmt = $this->pdo->prepare("SELECT user_id, role FROM users WHERE user_id = ? AND role = 'lecturer'");
+            $stmt = $this->pdo->prepare("SELECT user_id, role, full_name FROM users WHERE user_id = ? AND role = 'lecturer'");
             $stmt->execute([$data['lecturer_id']]);
             $lecturer = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -120,6 +123,7 @@ class CourseController
                 $response->getBody()->write(json_encode(['error' => 'Invalid lecturer ID or user is not a lecturer.']));
                 return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
             }
+            $lecturerFullName = $lecturer['full_name'];
         } catch (PDOException $e) {
             error_log("Error validating lecturer ID: " . $e->getMessage());
             $response->getBody()->write(json_encode(['error' => 'Database error during lecturer validation.']));
@@ -134,7 +138,33 @@ class CourseController
                 $data['lecturer_id']
             ]);
 
-            $response->getBody()->write(json_encode(['message' => 'Course added successfully', 'course_id' => $this->pdo->lastInsertId()]));
+            $newCourseId = $this->pdo->lastInsertId();
+            $courseName = $data['course_name'];
+            $courseCode = $data['course_code'];
+
+            $adminOrLecturerName = $jwt->user ??  'An Administrator/Lecturer'; // Name of the user who added the course
+
+            // 1. Notify the assigned Lecturer
+            $this->notificationController->createNotification(
+                $data['lecturer_id'],
+                "New Course Assignment!",
+                "{$adminOrLecturerName} has assigned you to teach the new course: **{$courseName} ({$courseCode})**.",
+                "New Course",
+                $newCourseId
+            );
+
+            // 2. Notify ALL Students about the new course
+            $this->notificationController->notifyRoles(
+                ['student'], 
+                "New Course Available: {$courseCode} - {$courseName}",
+                "A new course, **{$courseName} ({$courseCode})**, taught by {$lecturerFullName}, is now available for enrollment!",
+                "New Course",
+                $newCourseId
+            );
+
+            
+
+            $response->getBody()->write(json_encode(['message' => 'Course added successfully and notifications sent.', 'course_id' => $newCourseId]));
             return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
         } catch (PDOException $e) {
             if ($e->getCode() == '23000') { // SQLSTATE for Integrity Constraint Violation
@@ -188,7 +218,7 @@ class CourseController
             }
 
             // Authorization check
-            if ($userRole === 'lecturer' && (string)$course['lecturer_id'] !== (string)$userId) {
+            if ($userRole === 'lecturer' && (string) $course['lecturer_id'] !== (string) $userId) {
                 $response->getBody()->write(json_encode(['error' => 'Access denied: You can only update courses you are assigned to.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             } elseif ($userRole !== 'admin' && $userRole !== 'lecturer') {
@@ -218,9 +248,9 @@ class CourseController
                     return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
                 }
                 // Admin can assign to any lecturer; lecturer can only re-assign to themselves (already covered by initial check)
-                if ($userRole === 'lecturer' && (string)$data['lecturer_id'] !== (string)$userId) {
-                     $response->getBody()->write(json_encode(['error' => 'Access denied: Lecturers cannot change course lecturer to someone else.']));
-                     return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+                if ($userRole === 'lecturer' && (string) $data['lecturer_id'] !== (string) $userId) {
+                    $response->getBody()->write(json_encode(['error' => 'Access denied: Lecturers cannot change course lecturer to someone else.']));
+                    return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
                 }
 
                 $setClauses[] = 'lecturer_id = ?';
