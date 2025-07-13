@@ -1,23 +1,19 @@
 <?php
 
-// Autoload Composer dependencies
 require __DIR__ . '/../vendor/autoload.php';
-// Include database connection function
 require __DIR__ . '/../src/db.php';
-// Include JWT Middleware for authentication
 require __DIR__ . '/../src/jwtMiddleware.php';
 
-// Include controllers for different entities
-require __DIR__ . '/../src/Controllers/UserController.php'; // Existing
-require __DIR__ . '/../src/Controllers/CourseController.php'; // Existing
-require __DIR__ . '/../src/Controllers/EnrollmentController.php'; // Existing
-require __DIR__ . '/../src/Controllers/AssessmentComponentController.php'; // Existing
-require __DIR__ . '/../src/Controllers/StudentMarkController.php'; // Existing
-
-// New controllers
+// controllers
+require __DIR__ . '/../src/Controllers/UserController.php'; 
+require __DIR__ . '/../src/Controllers/CourseController.php'; 
+require __DIR__ . '/../src/Controllers/EnrollmentController.php'; 
+require __DIR__ . '/../src/Controllers/AssessmentComponentController.php'; 
+require __DIR__ . '/../src/Controllers/StudentMarkController.php'; 
 require __DIR__ . '/../src/Controllers/RemarkRequestController.php';
 require __DIR__ . '/../src/Controllers/AdvisorStudentController.php';
 require __DIR__ . '/../src/Controllers/AdvisorNoteController.php';
+require __DIR__ . '/../src/Controllers/NotificationController.php';
 
 
 use Slim\Factory\AppFactory;
@@ -25,16 +21,16 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Server\RequestHandlerInterface;
 use Firebase\JWT\JWT;
-use App\Controllers\ProductController;
+
 use App\Controllers\UserController;
 use App\Controllers\CourseController;
 use App\Controllers\EnrollmentController;
 use App\Controllers\AssessmentComponentController;
 use App\Controllers\StudentMarkController;
-// New controllers
 use App\Controllers\RemarkRequestController;
 use App\Controllers\AdvisorStudentController;
 use App\Controllers\AdvisorNoteController;
+use App\Controllers\NotificationController;
 
 
 // Define the secret key for JWT (should be in a secure config in production)
@@ -73,16 +69,17 @@ $jwtMiddleware = new JwtMiddleware($secretKey);
 // Get the PDO instance for database connection
 $pdo = getPDO();
 
-// Instantiate all controllers, passing the PDO instance
+
+$notificationController = new NotificationController($pdo);
+
 $userController = new UserController($pdo);
 $courseController = new CourseController($pdo);
 $enrollmentController = new EnrollmentController($pdo);
 $assessmentComponentController = new AssessmentComponentController($pdo);
 $studentMarkController = new StudentMarkController($pdo);
-// New controller instances
 $remarkRequestController = new RemarkRequestController($pdo);
 $advisorStudentController = new AdvisorStudentController($pdo);
-$advisorNoteController = new AdvisorNoteController($pdo);
+$advisorNoteController = new AdvisorNoteController($pdo,$notificationController);
 
 $app->get('/', function (Request $request, Response $response) {
     // Correct way to write a response in Slim 4.x

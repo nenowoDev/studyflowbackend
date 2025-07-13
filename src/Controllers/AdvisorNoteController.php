@@ -10,10 +10,11 @@ use PDOException;
 class AdvisorNoteController
 {
     private PDO $pdo;
-
-    public function __construct(PDO $pdo)
+    private NotificationController $notificationController;
+    public function __construct(PDO $pdo,NotificationController $notificationController)
     {
         $this->pdo = $pdo;
+        $this->notificationController = $notificationController;
     }
 
     /**
@@ -114,10 +115,10 @@ class AdvisorNoteController
             }
 
             // Authorization check
-            if ($userRole === 'advisor' && (string)$note['advisor_id'] !== (string)$userId) {
+            if ($userRole === 'advisor' && (string) $note['advisor_id'] !== (string) $userId) {
                 $response->getBody()->write(json_encode(['error' => 'Access denied: You can only view your own advisor notes.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
-            } elseif ($userRole === 'student' && (string)$note['student_id'] !== (string)$userId) {
+            } elseif ($userRole === 'student' && (string) $note['student_id'] !== (string) $userId) {
                 $response->getBody()->write(json_encode(['error' => 'Access denied: You can only view notes about yourself.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             } elseif ($userRole !== 'admin') {
@@ -170,7 +171,7 @@ class AdvisorNoteController
             }
 
             // Authorization check
-            if ($userRole === 'advisor' && (string)$assignment['advisor_id'] !== (string)$userId) {
+            if ($userRole === 'advisor' && (string) $assignment['advisor_id'] !== (string) $userId) {
                 $response->getBody()->write(json_encode(['error' => 'Access denied: You can only add notes for your assigned students.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             } elseif ($userRole !== 'admin' && $userRole !== 'advisor') {
@@ -186,6 +187,16 @@ class AdvisorNoteController
             ]);
 
             $response->getBody()->write(json_encode(['message' => 'Advisor note added successfully', 'note_id' => $this->pdo->lastInsertId()]));
+
+            $this->notificationController->createNotification(
+                $data["advisor_student_id"],
+                "New Advisor Notes for you",
+                "{$jwt->user} has added a new note for you!",
+                "Advisor Notes",
+                "{$this->pdo->lastInsertId()}"
+            );
+
+
             return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
         } catch (PDOException $e) {
             error_log("Error adding advisor note: " . $e->getMessage());
@@ -241,7 +252,7 @@ class AdvisorNoteController
             }
 
             // Authorization check
-            if ($userRole === 'advisor' && (string)$existingNote['advisor_id'] !== (string)$userId) {
+            if ($userRole === 'advisor' && (string) $existingNote['advisor_id'] !== (string) $userId) {
                 $response->getBody()->write(json_encode(['error' => 'Access denied: You can only update your own advisor notes.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             } elseif ($userRole !== 'admin' && $userRole !== 'advisor') {
@@ -270,7 +281,7 @@ class AdvisorNoteController
                     $response->getBody()->write(json_encode(['error' => 'Invalid new advisor-student assignment ID.']));
                     return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
                 }
-                if ($userRole === 'advisor' && (string)$newAssignment['advisor_id'] !== (string)$userId) {
+                if ($userRole === 'advisor' && (string) $newAssignment['advisor_id'] !== (string) $userId) {
                     $response->getBody()->write(json_encode(['error' => 'Access denied: You can only reassign notes to your own assigned students.']));
                     return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
                 }
@@ -296,6 +307,15 @@ class AdvisorNoteController
             }
 
             $response->getBody()->write(json_encode(['message' => 'Advisor note updated successfully']));
+
+            $this->notificationController->createNotification(
+                $data["advisor_student_id"],
+                "Advisor Notes updated",
+                "{$jwt->user} has updated a note!",
+                "Advisor Notes",
+                "{$noteId}"
+            );
+
             return $response->withHeader('Content-Type', 'application/json');
         } catch (PDOException $e) {
             error_log("Error updating advisor note ID {$noteId}: " . $e->getMessage());
@@ -344,7 +364,7 @@ class AdvisorNoteController
             }
 
             // Authorization check
-            if ($userRole === 'advisor' && (string)$existingNote['advisor_id'] !== (string)$userId) {
+            if ($userRole === 'advisor' && (string) $existingNote['advisor_id'] !== (string) $userId) {
                 $response->getBody()->write(json_encode(['error' => 'Access denied: You can only delete your own advisor notes.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             } elseif ($userRole !== 'admin' && $userRole !== 'advisor') {

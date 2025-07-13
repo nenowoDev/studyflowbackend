@@ -104,3 +104,16 @@ CREATE TABLE `advisor_notes` (
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (`advisor_student_id`) REFERENCES `advisor_student`(`advisor_student_id`) ON DELETE CASCADE
 ) ;
+
+
+CREATE TABLE `notifications` (
+    `notification_id` INT AUTO_INCREMENT PRIMARY KEY,
+    `user_id` INT NOT NULL,
+    `title` VARCHAR(255) NOT NULL,
+    `message` TEXT NOT NULL,
+    `type` VARCHAR(50), 
+    `related_id` INT, 
+    `is_read` BOOLEAN DEFAULT FALSE,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
+);
