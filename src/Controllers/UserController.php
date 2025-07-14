@@ -331,12 +331,12 @@ public function getStudentsByLecturer(Request $request, Response $response, arra
 
         // Query to fetch all students who are enrolled in courses taught by this lecturer
         $stmt = $this->pdo->prepare("
-            SELECT u.username, u.full_name, u.matric_number, c.course_code
-            FROM users u
-            JOIN enrollments e ON u.user_id = e.student_id
-            JOIN courses c ON e.course_id = c.course_id
-            WHERE c.lecturer_id = ? AND u.role = 'student'
-        ");
+    SELECT u.user_id, u.username, u.full_name, u.matric_number, c.course_code
+    FROM users u
+    JOIN enrollments e ON u.user_id = e.student_id
+    JOIN courses c ON e.course_id = c.course_id
+    WHERE c.lecturer_id = ? AND u.role = 'student'
+");
         $stmt->execute([$lecturerId]);
 
         $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
