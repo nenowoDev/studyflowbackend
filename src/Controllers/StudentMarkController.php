@@ -483,4 +483,62 @@ class StudentMarkController
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
         }
     }
+    // Inside your StudentMarkController.php (or similar file handling student marks)
+
+// Example endpoint handler for GET /student-marks/{studentId}
+// Inside your StudentMarkController.php
+// Inside your StudentMarkController.php
+public function getStudentMarksByStudentId(Request $request, Response $response, array $args): Response
+    {
+        // CORRECTED LINE: Access 'id' from $args, not 'studentId'
+        $studentId = $args['id']; 
+        error_log("Backend Debug: Received studentId for marks: " . $studentId);
+
+        try {
+            // Step 1: Get all enrollment_ids for this student
+            $stmtEnrollments = $this->pdo->prepare("SELECT enrollment_id FROM enrollments WHERE student_id = ?");
+            $stmtEnrollments->execute([$studentId]);
+            $enrollmentIds = $stmtEnrollments->fetchAll(PDO::FETCH_COLUMN);
+            
+            error_log("Backend Debug: Enrollment IDs found for student " . $studentId . ": " . print_r($enrollmentIds, true));
+
+            if (empty($enrollmentIds)) {
+                error_log("Backend Debug: No enrollment IDs found for student " . $studentId . ". Returning empty marks array.");
+                $response->getBody()->write(json_encode([]));
+                return $response->withHeader('Content-Type', 'application/json');
+            }
+
+            // Step 2: Prepare the IN clause for the main query
+            $inClausePlaceholders = implode(',', array_fill(0, count($enrollmentIds), '?'));
+            
+            // Step 3: Fetch marks using the obtained enrollment IDs
+            $query = "
+                SELECT sm.mark_id, sm.enrollment_id, sm.component_id, sm.mark_obtained, sm.recorded_by,
+                       ac.max_mark, ac.weight_percentage
+                FROM student_marks sm
+                JOIN assessment_components ac ON sm.component_id = ac.component_id
+                WHERE sm.enrollment_id IN (" . $inClausePlaceholders . ")
+            ";
+            
+            error_log("Backend Debug: Executing marks query: " . $query . " with parameters: " . print_r($enrollmentIds, true));
+
+            $stmtMarks = $this->pdo->prepare($query);
+            $stmtMarks->execute($enrollmentIds);
+            $marks = $stmtMarks->fetchAll(PDO::FETCH_ASSOC);
+            
+            error_log("Backend Debug: Fetched marks for studentId " . $studentId . ": " . print_r($marks, true));
+
+            if (!$marks) {
+                $marks = [];
+            }
+
+            $response->getBody()->write(json_encode($marks));
+            return $response->withHeader('Content-Type', 'application/json');
+
+        } catch (PDOException $e) {
+            error_log("Backend Error: Failed to fetch student marks for student_id {$studentId}: " . $e->getMessage());
+            $response->getBody()->write(json_encode(['error' => 'Failed to fetch student marks.']));
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
 }
