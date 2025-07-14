@@ -200,6 +200,7 @@ $app->get('/all-student-marks', function (Request $request, Response $response) 
 $app->group('/student-marks', function ($app) use ($studentMarkController) {
     $app->get('', [$studentMarkController, 'getAllStudentMarks']); // Admin, Lecturer (own course), Student (self)
     $app->get('/{id}', [$studentMarkController, 'getStudentMarkById']); // Admin, Lecturer (own course), Student (self)
+    $app->get('/all/{id}', [$studentMarkController, 'getStudentMarksByStudentId']); // Admin, Lecturer (own course), Student (self)
     $app->post('', [$studentMarkController, 'addStudentMark']); // Admin or Lecturer (own course)
     $app->put('/{id}', [$studentMarkController, 'updateStudentMark']); // Admin or Lecturer (own course)
     $app->delete('/{id}', [$studentMarkController, 'deleteStudentMark']); // Admin or Lecturer (own course)
