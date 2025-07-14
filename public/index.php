@@ -171,7 +171,10 @@ $app->group('/courses', function ($app) use ($courseController) {
     $app->post('', [$courseController, 'addCourse']); // Admin or Lecturer (self-assign)
     $app->put('/{id}', [$courseController, 'updateCourse']); // Admin or Lecturer (own course)
     $app->delete('/{id}', [$courseController, 'deleteCourse']); // Admin only
+    $app->get('/lecturer/{username}', [$courseController, 'getLecturerCourses']); // New one
+        $app->post('/{id}/add-students', [$courseController, 'addStudentsToCourse']); 
 })->add($jwtMiddleware);
+
 
 // --- Enrollment Routes ---
 $app->group('/enrollments', function ($app) use ($enrollmentController) {
@@ -180,6 +183,7 @@ $app->group('/enrollments', function ($app) use ($enrollmentController) {
     $app->post('', [$enrollmentController, 'addEnrollment']); // Admin only
     $app->put('/{id}', [$enrollmentController, 'updateEnrollment']); // Admin only
     $app->delete('/{id}', [$enrollmentController, 'deleteEnrollment']); // Admin only
+           $app->get('/{id}/eligible-students', [$enrollmentController, 'getEligibleStudents']); 
 })->add($jwtMiddleware);
 
 // --- Assessment Component Routes ---
