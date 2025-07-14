@@ -324,5 +324,125 @@ class EnrollmentController
             $response->getBody()->write(json_encode(['error' => 'Database error: Could not delete enrollment.']));
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
         }
+    } 
+   /**
+     * Fetches students who are not currently enrolled in a specific course.
+     * Accessible by lecturer role.
+     * Endpoint: GET /enrollments/{id}/eligible-students
+     */
+    public function getEligibleStudents(Request $request, Response $response, array $args): Response
+    {
+        $courseId = $args['id'];
+        $jwt = $request->getAttribute('jwt');
+        $requesterRole = $jwt->role ?? null;
+        $lecturerId = $jwt->user_id ?? null;
+
+        if ($requesterRole !== 'lecturer' || !$lecturerId) {
+            $response->getBody()->write(json_encode(['error' => 'Access denied: Lecturer role required.']));
+            return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+        }
+
+        try {
+            // Verify that the lecturer actually teaches this course
+            $stmtCourse = $this->pdo->prepare("SELECT COUNT(*) FROM courses WHERE course_id = ? AND lecturer_id = ?");
+            $stmtCourse->execute([$courseId, $lecturerId]);
+            if ($stmtCourse->fetchColumn() == 0) {
+                $response->getBody()->write(json_encode(['error' => 'Access denied: You do not teach this course.']));
+                return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+            }
+
+            // Fetch students who are not currently enrolled in this course
+            $stmt = $this->pdo->prepare("
+                SELECT u.user_id, u.username, u.full_name, u.matric_number, u.email, u.profile_picture
+                FROM users u
+                WHERE u.role = 'student'
+                AND u.user_id NOT IN (
+                    SELECT e.student_id
+                    FROM enrollments e
+                    WHERE e.course_id = ?
+                )
+            ");
+            $stmt->execute([$courseId]);
+            $eligibleStudents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (!$eligibleStudents) {
+                $eligibleStudents = [];
+            }
+
+            $response->getBody()->write(json_encode(['eligibleStudents' => $eligibleStudents]));
+            return $response->withHeader('Content-Type', 'application/json');
+
+        } catch (PDOException $e) {
+            error_log("Error fetching eligible students for course {$courseId}: " . $e->getMessage());
+            $response->getBody()->write(json_encode(['error' => 'Failed to fetch eligible students.']));
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+    /**
+     * Assigns one or more existing students to a specific course.
+     * Accessible by lecturer role.
+     * Endpoint: POST /courses/{id}/add-students
+     * Payload: { student_ids: [1, 2, 3] }
+     */
+    public function addStudentsToCourse(Request $request, Response $response, array $args): Response
+    {
+        $courseId = $args['id'];
+        $jwt = $request->getAttribute('jwt');
+        $requesterRole = $jwt->role ?? null;
+        $lecturerId = $jwt->user_id ?? null;
+
+        if ($requesterRole !== 'lecturer' || !$lecturerId) {
+            $response->getBody()->write(json_encode(['error' => 'Access denied: Lecturer role required.']));
+            return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+        }
+
+        // Verify that the lecturer actually teaches this course
+        $stmtCourse = $this->pdo->prepare("SELECT COUNT(*) FROM courses WHERE course_id = ? AND lecturer_id = ?");
+        $stmtCourse->execute([$courseId, $lecturerId]);
+        if ($stmtCourse->fetchColumn() == 0) {
+            $response->getBody()->write(json_encode(['error' => 'Access denied: You do not teach this course.']));
+            return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+        }
+
+        $data = json_decode($request->getBody()->getContents(), true);
+
+        if (empty($data['student_ids']) || !is_array($data['student_ids'])) {
+            $response->getBody()->write(json_encode(['error' => 'student_ids array is required.']));
+            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+        }
+
+        $addedCount = 0;
+        $failedCount = 0;
+        $messages = [];
+
+        foreach ($data['student_ids'] as $studentId) {
+            try {
+                // Check if student is already enrolled to prevent duplicates
+                $stmtCheck = $this->pdo->prepare("SELECT COUNT(*) FROM enrollments WHERE student_id = ? AND course_id = ?");
+                $stmtCheck->execute([$studentId, $courseId]);
+                if ($stmtCheck->fetchColumn() > 0) {
+                    $messages[] = "Student ID {$studentId} is already enrolled in course {$courseId}.";
+                    $failedCount++;
+                    continue;
+                }
+
+                $stmt = $this->pdo->prepare("INSERT INTO enrollments (student_id, course_id, enrollment_date) VALUES (?, ?, CURDATE())");
+                $stmt->execute([$studentId, $courseId]);
+                $addedCount++;
+                $messages[] = "Student ID {$studentId} successfully enrolled.";
+
+            } catch (PDOException $e) {
+                // Log the specific error for this student
+                error_log("Error enrolling student {$studentId} in course {$courseId}: " . $e->getMessage());
+                $messages[] = "Failed to enroll student ID {$studentId}: " . $e->getMessage();
+                $failedCount++;
+            }
+        }
+
+        $response->getBody()->write(json_encode([
+            'message' => "Enrollment process completed. Added: {$addedCount}, Failed: {$failedCount}.",
+            'details' => $messages
+        ]));
+        return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
     }
 }
