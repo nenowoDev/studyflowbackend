@@ -357,5 +357,52 @@ public function getStudentsByLecturer(Request $request, Response $response, arra
 }
 
 
+ public function getEligibleStudents(Request $request, Response $response, array $args): Response
+    {
+        $courseId = $args['id'];
+        $jwt = $request->getAttribute('jwt');
+        $requesterRole = $jwt->role ?? null;
+        $lecturerId = $jwt->user_id ?? null;
 
+        if ($requesterRole !== 'lecturer' || !$lecturerId) {
+            $response->getBody()->write(json_encode(['error' => 'Access denied: Lecturer role required.']));
+            return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+        }
+
+        try {
+            // Verify that the lecturer actually teaches this course
+            $stmtCourse = $this->pdo->prepare("SELECT COUNT(*) FROM courses WHERE course_id = ? AND lecturer_id = ?");
+            $stmtCourse->execute([$courseId, $lecturerId]);
+            if ($stmtCourse->fetchColumn() == 0) {
+                $response->getBody()->write(json_encode(['error' => 'Access denied: You do not teach this course.']));
+                return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+            }
+
+            // Fetch students who are not currently enrolled in this course
+            $stmt = $this->pdo->prepare("
+                SELECT u.user_id, u.username, u.full_name, u.matric_number, u.email, u.profile_picture
+                FROM users u
+                WHERE u.role = 'student'
+                AND u.user_id NOT IN (
+                    SELECT e.student_id
+                    FROM enrollments e
+                    WHERE e.course_id = ?
+                )
+            ");
+            $stmt->execute([$courseId]);
+            $eligibleStudents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (!$eligibleStudents) {
+                $eligibleStudents = [];
+            }
+
+            $response->getBody()->write(json_encode(['eligibleStudents' => $eligibleStudents]));
+            return $response->withHeader('Content-Type', 'application/json');
+
+        } catch (PDOException $e) {
+            error_log("Error fetching eligible students for course {$courseId}: " . $e->getMessage());
+            $response->getBody()->write(json_encode(['error' => 'Failed to fetch eligible students.']));
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
 }
