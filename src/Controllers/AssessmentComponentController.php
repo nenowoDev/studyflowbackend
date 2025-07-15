@@ -423,4 +423,52 @@ class AssessmentComponentController
             return false;
         }
     }
+    /**
+     * Get all assessment components for a specific course.
+     * Accessible to lecturers of that course or admin.
+     * Endpoint: GET /assessment-components/course/{course_id}
+     */
+    public function getAssessmentsByCourseId(Request $request, Response $response, array $args): Response
+    {
+        $courseId = $args['course_id'];
+        $jwt = $request->getAttribute('jwt');
+        $requesterRole = $jwt->role ?? null;
+        $lecturerId = $jwt->user_id ?? null;
+
+        if (!is_numeric($courseId)) {
+            $response->getBody()->write(json_encode(['error' => 'Invalid course ID.']));
+            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+        }
+
+        try {
+            // Authorization check: Admin can view any, Lecturer must teach the course
+            if ($requesterRole === 'lecturer') {
+                $stmtCourse = $this->pdo->prepare("SELECT COUNT(*) FROM courses WHERE course_id = ? AND lecturer_id = ?");
+                $stmtCourse->execute([$courseId, $lecturerId]);
+                if ($stmtCourse->fetchColumn() == 0) {
+                    $response->getBody()->write(json_encode(['error' => 'Access denied: You do not teach this course.']));
+                    return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+                }
+            } elseif ($requesterRole !== 'admin') {
+                $response->getBody()->write(json_encode(['error' => 'Access denied: Insufficient privileges.']));
+                return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+            }
+
+            $stmt = $this->pdo->prepare("SELECT * FROM assessment_components WHERE course_id = ?");
+            $stmt->execute([$courseId]);
+            $assessmentComponents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (!$assessmentComponents) {
+                $assessmentComponents = [];
+            }
+
+            $response->getBody()->write(json_encode(['assessmentComponents' => $assessmentComponents]));
+            return $response->withHeader('Content-Type', 'application/json');
+
+        } catch (PDOException $e) {
+            error_log("Error fetching assessment components for course {$courseId}: " . $e->getMessage());
+            $response->getBody()->write(json_encode(['error' => 'Failed to fetch assessment components.']));
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
 }
