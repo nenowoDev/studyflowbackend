@@ -541,4 +541,156 @@ public function getStudentMarksByStudentId(Request $request, Response $response,
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
         }
     }
+    
+    /**
+     * Get student marks for a specific course and assessment component.
+     * Accessible to lecturers of that course or admin.
+     * Includes all students enrolled in the course, even if they don't have a mark yet.
+     * Endpoint: GET /student-marks/course/{course_id}/assessment/{assessment_id}
+     */
+    public function getStudentMarksByCourseAndAssessment(Request $request, Response $response, array $args): Response
+    {
+        $courseId = $args['course_id'];
+        $assessmentId = $args['assessment_id'];
+        $jwt = $request->getAttribute('jwt');
+        $requesterRole = $jwt->role ?? null;
+        $lecturerId = $jwt->user_id ?? null;
+
+        if (!is_numeric($courseId) || !is_numeric($assessmentId)) {
+            $response->getBody()->write(json_encode(['error' => 'Invalid course ID or assessment ID.']));
+            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+        }
+
+        try {
+            // Authorization check: Admin can view any, Lecturer must teach the course
+            if ($requesterRole === 'lecturer') {
+                $stmtCourse = $this->pdo->prepare("SELECT COUNT(*) FROM courses WHERE course_id = ? AND lecturer_id = ?");
+                $stmtCourse->execute([$courseId, $lecturerId]);
+                if ($stmtCourse->fetchColumn() == 0) {
+                    $response->getBody()->write(json_encode(['error' => 'Access denied: You do not teach this course.']));
+                    return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+                }
+            } elseif ($requesterRole !== 'admin') {
+                $response->getBody()->write(json_encode(['error' => 'Access denied: Insufficient privileges.']));
+                return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+            }
+
+            // Fetch all students enrolled in the course, and their marks for the specific assessment if they exist
+            $stmt = $this->pdo->prepare("
+                SELECT 
+                    u.user_id AS student_id, 
+                    u.full_name, 
+                    u.matric_number,
+                    sm.mark_obtained AS mark,  
+                    sm.mark_id
+                FROM users u
+                JOIN enrollments e ON u.user_id = e.student_id
+                LEFT JOIN student_marks sm ON e.enrollment_id = sm.enrollment_id 
+                    AND sm.component_id = ?
+                WHERE e.course_id = ? AND u.role = 'student'
+                ORDER BY u.full_name
+            ");
+            
+            $stmt->execute([$assessmentId, $courseId]);  // Two parameters: $assessmentId and $courseId
+            $studentMarks = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+
+            if (!$studentMarks) {
+                $studentMarks = [];
+            }
+
+            $response->getBody()->write(json_encode(['studentMarks' => $studentMarks]));
+            return $response->withHeader('Content-Type', 'application/json');
+
+        } catch (PDOException $e) {
+            error_log("Error fetching student marks for course {$courseId}, assessment {$assessmentId}: " . $e->getMessage());
+            $response->getBody()->write(json_encode(['error' => 'Failed to fetch student marks.']));
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
+    /**
+     * Batch update or insert student marks.
+     * Accessible to lecturers of the course or admin.
+     * Endpoint: POST /student-marks/batch-update
+     * Payload: { marks: [{ student_id, assessment_component_id, course_id, mark, student_mark_id (optional) }] }
+     */
+    public function batchUpdateStudentMarks(Request $request, Response $response): Response
+    {
+        $data = json_decode($request->getBody()->getContents(), true);
+        $marks = $data['marks'] ?? [];
+
+        if (empty($marks) || !is_array($marks)) {
+            $response->getBody()->write(json_encode(['error' => 'Invalid or empty marks array provided.']));
+            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+        }
+
+        $jwt = $request->getAttribute('jwt');
+        $requesterRole = $jwt->role ?? null;
+        $lecturerId = $jwt->user_id ?? null;
+
+        try {
+            $this->pdo->beginTransaction();
+            $updatedCount = 0;
+            $insertedCount = 0;
+            $errors = [];
+
+            foreach ($marks as $markData) {
+                $studentId = $markData['student_id'] ?? null;
+                $assessmentComponentId = $markData['assessment_component_id'] ?? null;
+                $courseId = $markData['course_id'] ?? null;
+                $mark = $markData['mark'] ?? null;
+                $studentMarkId = $markData['student_mark_id'] ?? null;
+
+                // Basic validation for each mark entry
+                if (!is_numeric($studentId) || !is_numeric($assessmentComponentId) || !is_numeric($courseId) || (!is_numeric($mark) && $mark !== null)) {
+                    $errors[] = "Invalid data for student ID {$studentId}, assessment ID {$assessmentComponentId}.";
+                    continue;
+                }
+
+                // Authorization check for each mark: Lecturer must teach the course
+                if ($requesterRole === 'lecturer') {
+                    $stmtCourse = $this->pdo->prepare("SELECT COUNT(*) FROM courses WHERE course_id = ? AND lecturer_id = ?");
+                    $stmtCourse->execute([$courseId, $lecturerId]);
+                    if ($stmtCourse->fetchColumn() == 0) {
+                        $errors[] = "Access denied for course {$courseId}: You do not teach this course.";
+                        continue; // Skip this mark if lecturer doesn't teach the course
+                    }
+                } elseif ($requesterRole !== 'admin') {
+                    $errors[] = "Access denied: Insufficient privileges to update marks.";
+                    continue;
+                }
+
+                // Check if a mark already exists for this student, course, and assessment component
+                $stmtCheck = $this->pdo->prepare("SELECT student_mark_id FROM student_marks WHERE student_id = ? AND assessment_component_id = ? AND course_id = ?");
+                $stmtCheck->execute([$studentId, $assessmentComponentId, $courseId]);
+                $existingMark = $stmtCheck->fetch(PDO::FETCH_ASSOC);
+
+                if ($existingMark) {
+                    // Update existing mark
+                    $stmtUpdate = $this->pdo->prepare("UPDATE student_marks SET mark = ? WHERE student_mark_id = ?");
+                    $stmtUpdate->execute([$mark, $existingMark['student_mark_id']]);
+                    $updatedCount++;
+                } else {
+                    // Insert new mark
+                    $stmtInsert = $this->pdo->prepare("INSERT INTO student_marks (student_id, assessment_component_id, course_id, mark) VALUES (?, ?, ?, ?)");
+                    $stmtInsert->execute([$studentId, $assessmentComponentId, $courseId, $mark]);
+                    $insertedCount++;
+                }
+            }
+
+            $this->pdo->commit();
+            $response->getBody()->write(json_encode([
+                'message' => "Grades updated successfully. Inserted: {$insertedCount}, Updated: {$updatedCount}.",
+                'errors' => $errors
+            ]));
+            return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
+
+        } catch (PDOException $e) {
+            $this->pdo->rollBack();
+            error_log("Error batch updating student marks: " . $e->getMessage());
+            $response->getBody()->write(json_encode(['error' => 'Failed to save grades due to a database error.']));
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
 }
