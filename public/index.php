@@ -193,6 +193,8 @@ $app->group('/assessment-components', function ($app) use ($assessmentComponentC
     $app->post('', [$assessmentComponentController, 'addAssessmentComponent']); // Admin or Lecturer (own course)
     $app->put('/{id}', [$assessmentComponentController, 'updateAssessmentComponent']); // Admin or Lecturer (own course)
     $app->delete('/{id}', [$assessmentComponentController, 'deleteAssessmentComponent']); // Admin or Lecturer (own course)
+    $app->get('/course/{course_id}', [$assessmentComponentController, 'getAssessmentsByCourseId']);
+
 })->add($jwtMiddleware);
 
 // Route for getting all student marks for peer comparison
@@ -208,6 +210,11 @@ $app->group('/student-marks', function ($app) use ($studentMarkController) {
     $app->post('', [$studentMarkController, 'addStudentMark']); // Admin or Lecturer (own course)
     $app->put('/{id}', [$studentMarkController, 'updateStudentMark']); // Admin or Lecturer (own course)
     $app->delete('/{id}', [$studentMarkController, 'deleteStudentMark']); // Admin or Lecturer (own course)
+
+     // New route: Get student marks for a specific course and assessment
+        $app->get('/course/{course_id}/assessment/{assessment_id}', [$studentMarkController, 'getStudentMarksByCourseAndAssessment']);
+        // New route: Batch update/insert student marks
+        $app->post('/batch-update', [$studentMarkController, 'batchUpdateStudentMarks']);
 })->add($jwtMiddleware);
 
 // --- Remark Request Routes  ---
