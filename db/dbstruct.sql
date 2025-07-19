@@ -23,6 +23,7 @@ CREATE TABLE `courses` (
     `lecturer_id` INT NOT NULL ,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `credit_hours` int(11) DEFAULT NULL,
     FOREIGN KEY (`lecturer_id`) REFERENCES `users`(`user_id`) ON DELETE RESTRICT
 );
 
@@ -98,13 +99,14 @@ CREATE TABLE `advisor_student` (
 CREATE TABLE `advisor_notes` (
     `note_id` INT AUTO_INCREMENT PRIMARY KEY,
     `advisor_student_id` INT NOT NULL,
-    `note_content` TEXT NOT NULL ,
-    `meeting_date` DATE ,
+    `note_content` TEXT NOT NULL,
+    `meeting_date` DATE,
+    `recommendations` JSON,
+    `follow_up_required` BOOLEAN DEFAULT FALSE,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (`advisor_student_id`) REFERENCES `advisor_student`(`advisor_student_id`) ON DELETE CASCADE
-) ;
-
+);
 
 CREATE TABLE `notifications` (
     `notification_id` INT AUTO_INCREMENT PRIMARY KEY,

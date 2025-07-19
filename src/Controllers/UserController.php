@@ -60,6 +60,8 @@ class UserController
     {
         $userId = $args['id'];
         $jwt = $request->getAttribute('jwt');
+        $requesterRole = $jwt->role ?? null;
+        $requesterId = $jwt->user_id ?? null;
 
         // Ensure the ID is numeric
         if (!is_numeric($userId)) {
@@ -67,14 +69,31 @@ class UserController
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
-        // Authorization check: Admin can view any user, others can only view their own profile.
-        if (!isset($jwt->role) || ($jwt->role !== 'admin' && (string) $userId !== (string) $jwt->user_id)) {
-            $response->getBody()->write(json_encode(['error' => 'Access denied: You can only view your own profile.']));
-            return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+        // --- UPDATED AUTHORIZATION CHECK ---
+        if ($requesterRole === 'admin') {
+            // Admin can view any user
+        } elseif ($requesterRole === 'advisor') {
+            // Advisors can view their own profile or any of their advisees' profiles
+            $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM advisor_student WHERE advisor_id = ? AND student_id = ?");
+            $stmt->execute([$requesterId, $userId]);
+            $isAdvisee = $stmt->fetchColumn();
+
+            // Deny access if not their own profile AND not their advisee
+            if ((string) $userId !== (string) $requesterId && !$isAdvisee) {
+                $response->getBody()->write(json_encode(['error' => 'Access denied: You can only view your own profile or your advisees.']));
+                return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+            }
+        } else {
+            // Other roles can only view their own profile
+            if ((string) $userId !== (string) $requesterId) {
+                $response->getBody()->write(json_encode(['error' => 'Access denied: You can only view your own profile.']));
+                return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+            }
         }
 
         try {
-            $stmt = $this->pdo->prepare("SELECT user_id, username, role, email, full_name, matric_number, pin FROM users WHERE user_id = ?");
+            // --- UPDATED SELECT QUERY TO INCLUDE `profile_picture` ---
+            $stmt = $this->pdo->prepare("SELECT user_id, username, role, email, full_name, matric_number, pin, profile_picture FROM users WHERE user_id = ?");
             $stmt->execute([$userId]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -377,7 +396,7 @@ public function getStudentsByLecturer(Request $request, Response $response, arra
 
     } catch (PDOException $e) {
         error_log("Error fetching students for lecturer {$username}: " . $e->getMessage());
-        $response->getBody()->write(json_encode(['error' => 'Failed to fetch students.'])); 
+        $response->getBody()->write(json_encode(['error' => 'Failed to fetch students.']));
         return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
     }
 }

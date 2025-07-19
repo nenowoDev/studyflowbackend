@@ -10,15 +10,143 @@ use PDOException;
 class AssessmentComponentController
 {
     private PDO $pdo;
-    private NotificationController $notificationController; // Add this property
+    private NotificationController $notificationController;
 
-    public function __construct(PDO $pdo, NotificationController $notificationController) // Inject it here
+    public function __construct(PDO $pdo, NotificationController $notificationController)
     {
         $this->pdo = $pdo;
         $this->notificationController = $notificationController;
     }
 
-    // ... (Your existing getAllAssessmentComponents, getAssessmentComponentById methods) ...
+    /**
+     * Get all assessment components.
+     * Accessible to admin; lecturers for their courses; students for their enrolled courses; advisors for their advisees' courses.
+     *
+     * @param Request $request The request object.
+     * @param Response $response The response object.
+     * @return Response The response object with component data or error.
+     */
+    public function getAllAssessmentComponents(Request $request, Response $response): Response
+    {
+        $jwt = $request->getAttribute('jwt');
+        $userId = $jwt->user_id;
+        $userRole = $jwt->role;
+
+        $query = "SELECT ac.*, c.course_name, c.course_code, c.lecturer_id
+                  FROM assessment_components ac
+                  JOIN courses c ON ac.course_id = c.course_id";
+        $params = [];
+
+        if ($userRole === 'lecturer') {
+            $query .= " WHERE c.lecturer_id = ?";
+            $params[] = $userId;
+        } elseif ($userRole === 'student') {
+            // Students can only see components for courses they are enrolled in
+            $query .= " JOIN enrollments e ON ac.course_id = e.course_id WHERE e.student_id = ?";
+            $params[] = $userId;
+        } elseif ($userRole === 'advisor') {
+            // Advisors can see components for courses their advisees are enrolled in
+            $query .= " JOIN enrollments e ON ac.course_id = e.course_id JOIN advisor_student ads ON e.student_id = ads.student_id WHERE ads.advisor_id = ?";
+            $params[] = $userId;
+        } elseif ($userRole !== 'admin') {
+            $response->getBody()->write(json_encode(['error' => 'Access denied for this role.']));
+            return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+        }
+
+        try {
+            $stmt = $this->pdo->prepare($query);
+            $stmt->execute($params);
+            $assessmentComponents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (!$assessmentComponents) {
+                $assessmentComponents = [];
+            }
+
+            $response->getBody()->write(json_encode(['assessmentComponents' => $assessmentComponents]));
+            return $response->withHeader('Content-Type', 'application/json');
+
+        } catch (PDOException $e) {
+            error_log("Error fetching all assessment components: " . $e->getMessage());
+            $response->getBody()->write(json_encode(['error' => 'Failed to fetch assessment components.']));
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
+
+    /**
+     * Get a single assessment component by ID.
+     * Accessible to admin; lecturers for their courses; students for their enrolled courses; advisors for their advisees' courses.
+     *
+     * @param Request $request The request object.
+     * @param Response $response The response object.
+     * @param array $args Route arguments (e.g., component ID).
+     * @return Response The response object with component data or error.
+     */
+    public function getAssessmentComponentById(Request $request, Response $response, array $args): Response
+    {
+        $componentId = $args['id'];
+        $jwt = $request->getAttribute('jwt');
+        $userId = $jwt->user_id;
+        $userRole = $jwt->role;
+
+        if (!is_numeric($componentId)) {
+            $response->getBody()->write(json_encode(['error' => 'Invalid component ID']));
+            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+        }
+
+        $query = "SELECT ac.*, c.course_name, c.course_code, c.lecturer_id
+                  FROM assessment_components ac
+                  JOIN courses c ON ac.course_id = c.course_id
+                  WHERE ac.component_id = ?";
+        $params = [$componentId];
+
+        try {
+            $stmt = $this->pdo->prepare($query);
+            $stmt->execute($params);
+            $component = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$component) {
+                $response->getBody()->write(json_encode(['error' => 'Assessment component not found']));
+                return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+            }
+
+            // Authorization check
+            if ($userRole === 'lecturer' && (string)$component['lecturer_id'] !== (string)$userId) {
+                $response->getBody()->write(json_encode(['error' => 'Access denied: You can only view components for your courses.']));
+                return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+            } elseif ($userRole === 'student') {
+                // Students can only see components for courses they are enrolled in
+                $stmtCheckEnrollment = $this->pdo->prepare("SELECT COUNT(*) FROM enrollments WHERE student_id = ? AND course_id = ?");
+                $stmtCheckEnrollment->execute([$userId, $component['course_id']]);
+                if ($stmtCheckEnrollment->fetchColumn() === 0) {
+                    $response->getBody()->write(json_encode(['error' => 'Access denied: You are not enrolled in this course.']));
+                    return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+                }
+            } elseif ($userRole === 'advisor') {
+                // Advisors can only see components for courses their advisees are enrolled in
+                $stmtCheckAdviseeEnrollment = $this->pdo->prepare("
+                    SELECT COUNT(*)
+                    FROM advisor_student ads
+                    JOIN enrollments e ON ads.student_id = e.student_id
+                    WHERE ads.advisor_id = ? AND e.course_id = ?
+                ");
+                $stmtCheckAdviseeEnrollment->execute([$userId, $component['course_id']]);
+                if ($stmtCheckAdviseeEnrollment->fetchColumn() === 0) {
+                    $response->getBody()->write(json_encode(['error' => 'Access denied: No advisee of yours is enrolled in this course.']));
+                    return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+                }
+            } elseif ($userRole !== 'admin') {
+                $response->getBody()->write(json_encode(['error' => 'Access denied for this role.']));
+                return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+            }
+
+            $response->getBody()->write(json_encode($component));
+            return $response->withHeader('Content-Type', 'application/json');
+        } catch (PDOException $e) {
+            error_log("Error fetching assessment component by ID {$componentId}: " . $e->getMessage());
+            $response->getBody()->write(json_encode(['error' => 'Database error: Could not retrieve assessment component.']));
+            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+        }
+    }
 
     /**
      * Add a new assessment component.
@@ -425,7 +553,7 @@ class AssessmentComponentController
     }
     /**
      * Get all assessment components for a specific course.
-     * Accessible to lecturers of that course or admin.
+     * Accessible to lecturers of that course, admin, and advisors (if their advisees are in the course).
      * Endpoint: GET /assessment-components/course/{course_id}
      */
     public function getAssessmentsByCourseId(Request $request, Response $response, array $args): Response
@@ -433,7 +561,7 @@ class AssessmentComponentController
         $courseId = $args['course_id'];
         $jwt = $request->getAttribute('jwt');
         $requesterRole = $jwt->role ?? null;
-        $lecturerId = $jwt->user_id ?? null;
+        $userId = $jwt->user_id ?? null; // Use userId for both lecturer and advisor checks
 
         if (!is_numeric($courseId)) {
             $response->getBody()->write(json_encode(['error' => 'Invalid course ID.']));
@@ -441,12 +569,25 @@ class AssessmentComponentController
         }
 
         try {
-            // Authorization check: Admin can view any, Lecturer must teach the course
+            // Authorization check
             if ($requesterRole === 'lecturer') {
                 $stmtCourse = $this->pdo->prepare("SELECT COUNT(*) FROM courses WHERE course_id = ? AND lecturer_id = ?");
-                $stmtCourse->execute([$courseId, $lecturerId]);
+                $stmtCourse->execute([$courseId, $userId]);
                 if ($stmtCourse->fetchColumn() == 0) {
-                    $response->getBody()->write(json_encode(['error' => 'Access denied: You do not teach this course.']));
+                    $response->getBody()->write(json_encode(['error' => 'Access denied: You do not teach this this course.']));
+                    return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+                }
+            } elseif ($requesterRole === 'advisor') {
+                // Advisors can view if any of their advisees are enrolled in this course
+                $stmtCheckAdviseeEnrollment = $this->pdo->prepare("
+                    SELECT COUNT(*)
+                    FROM advisor_student ads
+                    JOIN enrollments e ON ads.student_id = e.student_id
+                    WHERE ads.advisor_id = ? AND e.course_id = ?
+                ");
+                $stmtCheckAdviseeEnrollment->execute([$userId, $courseId]);
+                if ($stmtCheckAdviseeEnrollment->fetchColumn() === 0) {
+                    $response->getBody()->write(json_encode(['error' => 'Access denied: No advisee of yours is enrolled in this course.']));
                     return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
                 }
             } elseif ($requesterRole !== 'admin') {

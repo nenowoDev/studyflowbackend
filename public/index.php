@@ -172,7 +172,7 @@ $app->group('/courses', function ($app) use ($courseController) {
     $app->put('/{id}', [$courseController, 'updateCourse']); // Admin or Lecturer (own course)
     $app->delete('/{id}', [$courseController, 'deleteCourse']); // Admin only
     $app->get('/lecturer/{username}', [$courseController, 'getLecturerCourses']); // New one
-        $app->post('/{id}/add-students', [$courseController, 'addStudentsToCourse']); 
+    $app->post('/{id}/add-students', [$courseController, 'addStudentsToCourse']); 
 })->add($jwtMiddleware);
 
 
@@ -183,7 +183,7 @@ $app->group('/enrollments', function ($app) use ($enrollmentController) {
     $app->post('', [$enrollmentController, 'addEnrollment']); // Admin only
     $app->put('/{id}', [$enrollmentController, 'updateEnrollment']); // Admin only
     $app->delete('/{id}', [$enrollmentController, 'deleteEnrollment']); // Admin only
-           $app->get('/{id}/eligible-students', [$enrollmentController, 'getEligibleStudents']); 
+    $app->get('/{id}/eligible-students', [$enrollmentController, 'getEligibleStudents']); 
 })->add($jwtMiddleware);
 
 // --- Assessment Component Routes ---
@@ -202,6 +202,9 @@ $app->get('/all-student-marks', function (Request $request, Response $response) 
     return $studentMarkController->getAllStudentMarksForPeerComparison($request, $response);
 })->add($jwtMiddleware); // Add authentication middleware
 
+// ADDED ROUTE: This connects the /student/course-summaries URL to your controller function
+$app->get('/student/course-summaries', 'App\Controllers\StudentMarkController:getStudentCourseSummaries')->add($jwtMiddleware);
+
 // --- Student Mark Routes ---
 $app->group('/student-marks', function ($app) use ($studentMarkController) {
     $app->get('', [$studentMarkController, 'getAllStudentMarks']); // Admin, Lecturer (own course), Student (self)
@@ -211,10 +214,10 @@ $app->group('/student-marks', function ($app) use ($studentMarkController) {
     $app->put('/{id}', [$studentMarkController, 'updateStudentMark']); // Admin or Lecturer (own course)
     $app->delete('/{id}', [$studentMarkController, 'deleteStudentMark']); // Admin or Lecturer (own course)
 
-     // New route: Get student marks for a specific course and assessment
-        $app->get('/course/{course_id}/assessment/{assessment_id}', [$studentMarkController, 'getStudentMarksByCourseAndAssessment']);
-        // New route: Batch update/insert student marks
-        $app->post('/batch-update', [$studentMarkController, 'batchUpdateStudentMarks']);
+    // New route: Get student marks for a specific course and assessment
+    $app->get('/course/{course_id}/assessment/{assessment_id}', [$studentMarkController, 'getStudentMarksByCourseAndAssessment']);
+    // New route: Batch update/insert student marks
+    $app->post('/batch-update', [$studentMarkController, 'batchUpdateStudentMarks']);
 })->add($jwtMiddleware);
 
 // --- Remark Request Routes  ---

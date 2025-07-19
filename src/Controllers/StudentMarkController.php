@@ -15,7 +15,7 @@ class StudentMarkController
     {
         $this->pdo = $pdo;
     }
-   /**
+    /**
      * Get anonymized student marks for peer comparison
      * Students can see aggregated data without individual student identities (except their own)
      * Lecturers and admins can see full details
@@ -27,24 +27,26 @@ class StudentMarkController
     public function getAllStudentMarksForPeerComparison(Request $request, Response $response): Response
     {
         // Get current user info from JWT token or session
-        $currentUser = $request->getAttribute('user'); // Assuming middleware sets this
-        $userRole = $currentUser['role'] ?? 'student';
-        $currentStudentId = $currentUser['user_id'] ?? null;
-        
-        $query = "SELECT sm.*, 
+        $currentUser = $request->getAttribute('jwt'); // Use 'jwt' as attribute name
+        $userRole = $currentUser->role ?? 'student'; // Access role from JWT object
+        $currentStudentId = $currentUser->user_id ?? null; // Access user_id from JWT object
+
+        $query = "SELECT sm.*,
                          u.user_id as student_id,
-                         u.full_name AS student_name, 
-                         c.course_name, 
-                         ac.component_name, 
+                         u.full_name AS student_name,
+                         c.course_name,
+                         ac.component_name,
+                         ac.max_mark, -- Added for GPA calculation
+                         ac.weight_percentage, -- Added for GPA calculation
                          recorded_by_user.full_name AS recorded_by_name
-                  FROM student_marks sm
-                  JOIN enrollments e ON sm.enrollment_id = e.enrollment_id
-                  JOIN users u ON e.student_id = u.user_id
-                  JOIN courses c ON e.course_id = c.course_id
-                  JOIN assessment_components ac ON sm.component_id = ac.component_id
-                  JOIN users recorded_by_user ON sm.recorded_by = recorded_by_user.user_id
-                  ORDER BY c.course_name, ac.component_name, sm.mark_obtained DESC";
-        
+                     FROM student_marks sm
+                     JOIN enrollments e ON sm.enrollment_id = e.enrollment_id
+                     JOIN users u ON e.student_id = u.user_id
+                     JOIN courses c ON e.course_id = c.course_id
+                     JOIN assessment_components ac ON sm.component_id = ac.component_id
+                     JOIN users recorded_by_user ON sm.recorded_by = recorded_by_user.user_id
+                     ORDER BY c.course_name, ac.component_name, sm.mark_obtained DESC";
+
         try {
             $stmt = $this->pdo->prepare($query);
             $stmt->execute();
@@ -55,10 +57,10 @@ class StudentMarkController
                 $anonymizedMarks = [];
                 $studentCounter = 1;
                 $anonymizationMap = [];
-                
+
                 foreach ($marks as $mark) {
                     $studentId = $mark['student_id'];
-                    
+
                     // Keep current student's data identifiable
                     if ($studentId == $currentStudentId) {
                         $mark['student_name'] = $mark['student_name']; // Keep real name
@@ -72,14 +74,15 @@ class StudentMarkController
                         $mark['student_name'] = $anonymizationMap[$studentId];
                         $mark['is_current_user'] = false;
                     }
-                    
+
                     // Remove sensitive identifiable information
-                    unset($mark['student_id']);
+                    // Note: 'student_id' is kept here for internal processing, but can be unset if not needed on frontend
+                    // unset($mark['student_id']);
                     unset($mark['recorded_by_name']);
-                    
+
                     $anonymizedMarks[] = $mark;
                 }
-                
+
                 $marks = $anonymizedMarks;
             }
 
@@ -95,6 +98,7 @@ class StudentMarkController
     /**
      * Get all student marks.
      * Accessible to admin; lecturers for their courses; students for their own marks.
+     * Advisors can see full details for their advisees.
      *
      * @param Request $request The request object.
      * @param Response $response The response object.
@@ -106,13 +110,14 @@ class StudentMarkController
         $userId = $jwt->user_id;
         $userRole = $jwt->role;
 
-        $query = "SELECT sm.*, u.full_name AS student_name, c.course_name, ac.component_name, recorded_by_user.full_name AS recorded_by_name
-                  FROM student_marks sm
-                  JOIN enrollments e ON sm.enrollment_id = e.enrollment_id
-                  JOIN users u ON e.student_id = u.user_id
-                  JOIN courses c ON e.course_id = c.course_id
-                  JOIN assessment_components ac ON sm.component_id = ac.component_id
-                  JOIN users recorded_by_user ON sm.recorded_by = recorded_by_user.user_id";
+        // Added ac.max_mark and ac.weight_percentage to the SELECT statement for GPA calculation
+        $query = "SELECT sm.*, u.full_name AS student_name, c.course_name, c.course_code, ac.component_name, ac.max_mark, ac.weight_percentage, recorded_by_user.full_name AS recorded_by_name
+                     FROM student_marks sm
+                     JOIN enrollments e ON sm.enrollment_id = e.enrollment_id
+                     JOIN users u ON e.student_id = u.user_id
+                     JOIN courses c ON e.course_id = c.course_id
+                     JOIN assessment_components ac ON sm.component_id = ac.component_id
+                     LEFT JOIN users recorded_by_user ON sm.recorded_by = recorded_by_user.user_id";
         $params = [];
 
         if ($userRole === 'student') {
@@ -120,6 +125,9 @@ class StudentMarkController
             $params[] = $userId;
         } elseif ($userRole === 'lecturer') {
             $query .= " WHERE c.lecturer_id = ?";
+            $params[] = $userId;
+        } elseif ($userRole === 'advisor') { // Added advisor role check
+            $query .= " JOIN advisor_student ads ON e.student_id = ads.student_id WHERE ads.advisor_id = ?";
             $params[] = $userId;
         } elseif ($userRole !== 'admin') {
             $response->getBody()->write(json_encode(['error' => 'Access denied for this role.']));
@@ -143,6 +151,7 @@ class StudentMarkController
     /**
      * Get a single student mark by ID.
      * Accessible to admin; lecturers for their courses; students for their own marks.
+     * Advisors can see full details for their advisees.
      *
      * @param Request $request The request object.
      * @param Response $response The response object.
@@ -161,14 +170,15 @@ class StudentMarkController
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
-        $query = "SELECT sm.*, e.student_id, c.lecturer_id, u.full_name AS student_name, c.course_name, ac.component_name, recorded_by_user.full_name AS recorded_by_name
-                  FROM student_marks sm
-                  JOIN enrollments e ON sm.enrollment_id = e.enrollment_id
-                  JOIN users u ON e.student_id = u.user_id
-                  JOIN courses c ON e.course_id = c.course_id
-                  JOIN assessment_components ac ON sm.component_id = ac.component_id
-                  JOIN users recorded_by_user ON sm.recorded_by = recorded_by_user.user_id
-                  WHERE sm.mark_id = ?";
+        // Added ac.max_mark and ac.weight_percentage to the SELECT statement for GPA calculation
+        $query = "SELECT sm.*, e.student_id, c.lecturer_id, u.full_name AS student_name, c.course_name, c.course_code, ac.component_name, ac.max_mark, ac.weight_percentage, recorded_by_user.full_name AS recorded_by_name
+                     FROM student_marks sm
+                     JOIN enrollments e ON sm.enrollment_id = e.enrollment_id
+                     JOIN users u ON e.student_id = u.user_id
+                     JOIN courses c ON e.course_id = c.course_id
+                     JOIN assessment_components ac ON sm.component_id = ac.component_id
+                     LEFT JOIN users recorded_by_user ON sm.recorded_by = recorded_by_user.user_id
+                     WHERE sm.mark_id = ?";
         $params = [$markId];
 
         try {
@@ -188,7 +198,15 @@ class StudentMarkController
             } elseif ($userRole === 'lecturer' && (string)$mark['lecturer_id'] !== (string)$userId) {
                 $response->getBody()->write(json_encode(['error' => 'Access denied: You can only view marks for your courses.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
-            } elseif ($userRole !== 'admin' && $userRole !== 'student' && $userRole !== 'lecturer') {
+            } elseif ($userRole === 'advisor') { // Added advisor role check
+                // Check if the student of this mark is an advisee of the current advisor
+                $stmtCheckAdvisorAdvisee = $this->pdo->prepare("SELECT COUNT(*) FROM advisor_student WHERE advisor_id = ? AND student_id = ?");
+                $stmtCheckAdvisorAdvisee->execute([$userId, $mark['student_id']]);
+                if ($stmtCheckAdvisorAdvisee->fetchColumn() === 0) {
+                    $response->getBody()->write(json_encode(['error' => 'Access denied: You can only view marks for your advisees.']));
+                    return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+                }
+            } elseif ($userRole !== 'admin') {
                 $response->getBody()->write(json_encode(['error' => 'Access denied for this role.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             }
@@ -232,10 +250,10 @@ class StudentMarkController
         try {
             // Validate enrollment and component, and check lecturer's authority over the course
             $stmtCheck = $this->pdo->prepare("
-                SELECT 
-                    e.student_id, 
-                    ac.course_id, 
-                    c.lecturer_id, 
+                SELECT
+                    e.student_id,
+                    ac.course_id,
+                    c.lecturer_id,
                     ac.max_mark
                 FROM enrollments e
                 JOIN assessment_components ac ON ac.course_id = e.course_id
@@ -318,12 +336,12 @@ class StudentMarkController
         try {
             // Fetch mark details to check authorization and max_mark
             $stmtMark = $this->pdo->prepare("
-                SELECT 
-                    sm.enrollment_id, 
-                    sm.component_id, 
-                    e.student_id, 
-                    ac.course_id, 
-                    c.lecturer_id, 
+                SELECT
+                    sm.enrollment_id,
+                    sm.component_id,
+                    e.student_id,
+                    ac.course_id,
+                    c.lecturer_id,
                     ac.max_mark
                 FROM student_marks sm
                 JOIN enrollments e ON sm.enrollment_id = e.enrollment_id
@@ -483,23 +501,48 @@ class StudentMarkController
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
         }
     }
-    // Inside your StudentMarkController.php (or similar file handling student marks)
 
-// Example endpoint handler for GET /student-marks/{studentId}
-// Inside your StudentMarkController.php
-// Inside your StudentMarkController.php
-public function getStudentMarksByStudentId(Request $request, Response $response, array $args): Response
+    public function getStudentMarksByStudentId(Request $request, Response $response, array $args): Response
     {
-        // CORRECTED LINE: Access 'id' from $args, not 'studentId'
-        $studentId = $args['id']; 
+        $studentId = $args['id'];
+        $jwt = $request->getAttribute('jwt');
+        $userId = $jwt->user_id;
+        $userRole = $jwt->role;
+
         error_log("Backend Debug: Received studentId for marks: " . $studentId);
 
+        // Authorization check
+        if ($userRole === 'advisor') {
+            $stmtCheckAdvisee = $this->pdo->prepare("SELECT COUNT(*) FROM advisor_student WHERE advisor_id = ? AND student_id = ?");
+            $stmtCheckAdvisee->execute([$userId, $studentId]);
+            if ($stmtCheckAdvisee->fetchColumn() === 0) {
+                $response->getBody()->write(json_encode(['error' => 'Access denied: You can only view marks for your assigned advisees.']));
+                return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+            }
+        } elseif ($userRole === 'lecturer') {
+            $stmtCheckLecturer = $this->pdo->prepare("
+                SELECT COUNT(*)
+                FROM enrollments e
+                JOIN courses c ON e.course_id = c.course_id
+                WHERE e.student_id = ? AND c.lecturer_id = ?
+            ");
+            $stmtCheckLecturer->execute([$studentId, $userId]);
+
+            if ($stmtCheckLecturer->fetchColumn() === 0) {
+                $response->getBody()->write(json_encode(['error' => 'Access denied: You are not authorized to view this student\'s marks.']));
+                return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+            }
+        } elseif ($userRole !== 'admin' && (string)$studentId !== (string)$userId) {
+            $response->getBody()->write(json_encode(['error' => 'Access denied: You can only view your own marks or you are not authorized to view this student\'s marks.']));
+            return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+        }
+
+
         try {
-            // Step 1: Get all enrollment_ids for this student
             $stmtEnrollments = $this->pdo->prepare("SELECT enrollment_id FROM enrollments WHERE student_id = ?");
             $stmtEnrollments->execute([$studentId]);
             $enrollmentIds = $stmtEnrollments->fetchAll(PDO::FETCH_COLUMN);
-            
+
             error_log("Backend Debug: Enrollment IDs found for student " . $studentId . ": " . print_r($enrollmentIds, true));
 
             if (empty($enrollmentIds)) {
@@ -508,24 +551,25 @@ public function getStudentMarksByStudentId(Request $request, Response $response,
                 return $response->withHeader('Content-Type', 'application/json');
             }
 
-            // Step 2: Prepare the IN clause for the main query
             $inClausePlaceholders = implode(',', array_fill(0, count($enrollmentIds), '?'));
-            
-            // Step 3: Fetch marks using the obtained enrollment IDs
+
             $query = "
                 SELECT sm.mark_id, sm.enrollment_id, sm.component_id, sm.mark_obtained, sm.recorded_by,
-                       ac.max_mark, ac.weight_percentage
+                             ac.max_mark, ac.weight_percentage,
+                             c.course_id, c.course_name, c.course_code, c.credit_hours
                 FROM student_marks sm
                 JOIN assessment_components ac ON sm.component_id = ac.component_id
+                JOIN enrollments e ON sm.enrollment_id = e.enrollment_id
+                JOIN courses c ON e.course_id = c.course_id
                 WHERE sm.enrollment_id IN (" . $inClausePlaceholders . ")
             ";
-            
+
             error_log("Backend Debug: Executing marks query: " . $query . " with parameters: " . print_r($enrollmentIds, true));
 
             $stmtMarks = $this->pdo->prepare($query);
             $stmtMarks->execute($enrollmentIds);
             $marks = $stmtMarks->fetchAll(PDO::FETCH_ASSOC);
-            
+
             error_log("Backend Debug: Fetched marks for studentId " . $studentId . ": " . print_r($marks, true));
 
             if (!$marks) {
@@ -541,155 +585,229 @@ public function getStudentMarksByStudentId(Request $request, Response $response,
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
         }
     }
-    
-    /**
-     * Get student marks for a specific course and assessment component.
-     * Accessible to lecturers of that course or admin.
-     * Includes all students enrolled in the course, even if they don't have a mark yet.
-     * Endpoint: GET /student-marks/course/{course_id}/assessment/{assessment_id}
-     */
-    public function getStudentMarksByCourseAndAssessment(Request $request, Response $response, array $args): Response
-    {
-        $courseId = $args['course_id'];
-        $assessmentId = $args['assessment_id'];
-        $jwt = $request->getAttribute('jwt');
-        $requesterRole = $jwt->role ?? null;
-        $lecturerId = $jwt->user_id ?? null;
 
-        if (!is_numeric($courseId) || !is_numeric($assessmentId)) {
-            $response->getBody()->write(json_encode(['error' => 'Invalid course ID or assessment ID.']));
-            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+    /**
+     * Get a student's course summaries (total marks and GPA).
+     * Accessible to students (for their own summaries) and admins.
+     *
+     * @param Request $request The request object.
+     * @param Response $response The response object.
+     * @return Response The response object with course summaries or an error.
+     */
+    public function getStudentCourseSummaries(Request $request, Response $response): Response
+    {
+        $jwt = $request->getAttribute('jwt');
+        $userId = $jwt->user_id;
+        $userRole = $jwt->role;
+
+        // Authorization: Only students and admins can view course summaries via this method
+        if ($userRole !== 'student' && $userRole !== 'admin') {
+            $response->getBody()->write(json_encode(['error' => 'Access denied: Only students and administrators can view course summaries.']));
+            return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
         }
 
         try {
-            // Authorization check: Admin can view any, Lecturer must teach the course
-            if ($requesterRole === 'lecturer') {
-                $stmtCourse = $this->pdo->prepare("SELECT COUNT(*) FROM courses WHERE course_id = ? AND lecturer_id = ?");
-                $stmtCourse->execute([$courseId, $lecturerId]);
-                if ($stmtCourse->fetchColumn() == 0) {
-                    $response->getBody()->write(json_encode(['error' => 'Access denied: You do not teach this course.']));
-                    return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+            // SQL query to get all courses and related assessment components for a specific student
+            $query = "SELECT
+                         c.course_id,
+                         c.course_code,
+                         c.course_name,
+                         c.credit_hours,
+                         ac.component_id,
+                         ac.component_name,
+                         ac.max_mark,
+                         ac.weight_percentage,
+                         sm.mark_obtained
+                     FROM
+                         courses c
+                     JOIN
+                         enrollments e ON c.course_id = e.course_id
+                     JOIN
+                         assessment_components ac ON c.course_id = ac.course_id
+                     LEFT JOIN
+                         student_marks sm ON e.enrollment_id = sm.enrollment_id AND ac.component_id = sm.component_id
+                     WHERE
+                         e.student_id = ?";
+
+            $stmt = $this->pdo->prepare($query);
+            $stmt->execute([$userId]);
+            $rawData = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Group data by course to calculate totals
+            $courseSummaries = [];
+            foreach ($rawData as $row) {
+                $courseId = $row['course_id'];
+
+                // Initialize course data if it doesn't exist
+                if (!isset($courseSummaries[$courseId])) {
+                    $courseSummaries[$courseId] = [
+                        'course_id' => $courseId,
+                        'course_code' => $row['course_code'],
+                        'course_name' => $row['course_name'],
+                        'credit_hours' => $row['credit_hours'],
+                        'total_mark' => 0,
+                        'total_weighted_percentage' => 0,
+                        'total_gpa' => 0,
+                        'components' => []
+                    ];
                 }
-            } elseif ($requesterRole !== 'admin') {
-                $response->getBody()->write(json_encode(['error' => 'Access denied: Insufficient privileges.']));
-                return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+
+                // Add component details
+                $courseSummaries[$courseId]['components'][] = [
+                    'component_id' => $row['component_id'],
+                    'component_name' => $row['component_name'],
+                    'max_mark' => $row['max_mark'],
+                    'weight_percentage' => $row['weight_percentage'],
+                    'mark_obtained' => $row['mark_obtained']
+                ];
+
+                // Calculate weighted mark for this component
+                if ($row['mark_obtained'] !== null && $row['max_mark'] > 0) {
+                    $weightedMark = ($row['mark_obtained'] / $row['max_mark']) * $row['weight_percentage'];
+                    $courseSummaries[$courseId]['total_mark'] += $weightedMark;
+                }
+
+                $courseSummaries[$courseId]['total_weighted_percentage'] += $row['weight_percentage'];
             }
 
-            // Fetch all students enrolled in the course, and their marks for the specific assessment if they exist
-            $stmt = $this->pdo->prepare("
-                SELECT 
-                    u.user_id AS student_id, 
-                    u.full_name, 
-                    u.matric_number,
-                    sm.mark_obtained AS mark,  
-                    sm.mark_id
-                FROM users u
-                JOIN enrollments e ON u.user_id = e.student_id
-                LEFT JOIN student_marks sm ON e.enrollment_id = sm.enrollment_id 
-                    AND sm.component_id = ?
-                WHERE e.course_id = ? AND u.role = 'student'
-                ORDER BY u.full_name
-            ");
-            
-            $stmt->execute([$assessmentId, $courseId]);  // Two parameters: $assessmentId and $courseId
-            $studentMarks = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            
-
-            if (!$studentMarks) {
-                $studentMarks = [];
+            // Calculate GPA for each course
+            foreach ($courseSummaries as &$summary) {
+                if ($summary['total_weighted_percentage'] > 0) {
+                    $overallPercentage = $summary['total_mark'] / $summary['total_weighted_percentage'] * 100;
+                    $summary['overall_percentage'] = round($overallPercentage, 2);
+                    $summary['gpa_grade'] = $this->calculateGpaGrade($overallPercentage);
+                } else {
+                    $summary['overall_percentage'] = 0;
+                    $summary['gpa_grade'] = 'N/A';
+                }
             }
+            unset($summary); // Break the reference
 
-            $response->getBody()->write(json_encode(['studentMarks' => $studentMarks]));
+            // Convert to a simple array for the JSON response
+            $responseBody = array_values($courseSummaries);
+
+            $response->getBody()->write(json_encode($responseBody));
             return $response->withHeader('Content-Type', 'application/json');
 
         } catch (PDOException $e) {
-            error_log("Error fetching student marks for course {$courseId}, assessment {$assessmentId}: " . $e->getMessage());
-            $response->getBody()->write(json_encode(['error' => 'Failed to fetch student marks.']));
+            error_log("Error fetching student course summaries for user {$userId}: " . $e->getMessage());
+            $response->getBody()->write(json_encode(['error' => 'Failed to fetch course summaries.']));
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
         }
     }
 
+    private function calculateGpaGrade(float $percentage): string
+    {
+        if ($percentage >= 90) return 'A';
+        if ($percentage >= 80) return 'B';
+        if ($percentage >= 70) return 'C';
+        if ($percentage >= 60) return 'D';
+        return 'F';
+    }
+
     /**
-     * Batch update or insert student marks.
-     * Accessible to lecturers of the course or admin.
-     * Endpoint: POST /student-marks/batch-update
-     * Payload: { marks: [{ student_id, assessment_component_id, course_id, mark, student_mark_id (optional) }] }
+     * Update or add multiple student marks in a batch.
+     * Accessible to lecturers (for their courses) and admin.
+     *
+     * @param Request $request The request object.
+     * @param Response $response The response object.
+     * @return Response The response object with success message or error.
      */
     public function batchUpdateStudentMarks(Request $request, Response $response): Response
     {
-        $data = json_decode($request->getBody()->getContents(), true);
-        $marks = $data['marks'] ?? [];
+        $jwt = $request->getAttribute('jwt');
+        $recordedBy = $jwt->user_id;
+        $userRole = $jwt->role;
 
-        if (empty($marks) || !is_array($marks)) {
-            $response->getBody()->write(json_encode(['error' => 'Invalid or empty marks array provided.']));
+        $data = json_decode($request->getBody()->getContents(), true);
+
+        if (!is_array($data) || empty($data)) {
+            $response->getBody()->write(json_encode(['error' => 'Invalid or empty data provided for batch update.']));
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
-        $jwt = $request->getAttribute('jwt');
-        $requesterRole = $jwt->role ?? null;
-        $lecturerId = $jwt->user_id ?? null;
+        $this->pdo->beginTransaction();
+        $successCount = 0;
+        $failCount = 0;
+        $failedMarks = [];
 
         try {
-            $this->pdo->beginTransaction();
-            $updatedCount = 0;
-            $insertedCount = 0;
-            $errors = [];
+            // Prepared statements for efficiency inside the loop
+            $stmtCheckComponent = $this->pdo->prepare("SELECT course_id, max_mark FROM assessment_components WHERE component_id = ?");
+            $stmtCheckEnrollment = $this->pdo->prepare("SELECT student_id, course_id FROM enrollments WHERE enrollment_id = ?");
+            $stmtCheckMark = $this->pdo->prepare("SELECT mark_id FROM student_marks WHERE enrollment_id = ? AND component_id = ?");
+            $stmtInsertMark = $this->pdo->prepare("INSERT INTO student_marks (enrollment_id, component_id, mark_obtained, recorded_by) VALUES (?, ?, ?, ?)");
+            $stmtUpdateMark = $this->pdo->prepare("UPDATE student_marks SET mark_obtained = ?, recorded_by = ? WHERE mark_id = ?");
 
-            foreach ($marks as $markData) {
-                $studentId = $markData['student_id'] ?? null;
-                $assessmentComponentId = $markData['assessment_component_id'] ?? null;
-                $courseId = $markData['course_id'] ?? null;
-                $mark = $markData['mark'] ?? null;
-                $studentMarkId = $markData['student_mark_id'] ?? null;
+            foreach ($data as $markData) {
+                $markObtained = $markData['mark_obtained'] ?? null;
+                $enrollmentId = $markData['enrollment_id'] ?? null;
+                $assessmentId = $markData['assessment_id'] ?? null;
 
-                // Basic validation for each mark entry
-                if (!is_numeric($studentId) || !is_numeric($assessmentComponentId) || !is_numeric($courseId) || (!is_numeric($mark) && $mark !== null)) {
-                    $errors[] = "Invalid data for student ID {$studentId}, assessment ID {$assessmentComponentId}.";
+                if (!is_numeric($markObtained) || $markObtained < 0 || empty($enrollmentId) || empty($assessmentId)) {
+                    $failCount++;
+                    $failedMarks[] = ['data' => $markData, 'reason' => 'Invalid data provided.'];
                     continue;
                 }
 
-                // Authorization check for each mark: Lecturer must teach the course
-                if ($requesterRole === 'lecturer') {
-                    $stmtCourse = $this->pdo->prepare("SELECT COUNT(*) FROM courses WHERE course_id = ? AND lecturer_id = ?");
-                    $stmtCourse->execute([$courseId, $lecturerId]);
-                    if ($stmtCourse->fetchColumn() == 0) {
-                        $errors[] = "Access denied for course {$courseId}: You do not teach this course.";
-                        continue; // Skip this mark if lecturer doesn't teach the course
+                // Get component details
+                $stmtCheckComponent->execute([$assessmentId]);
+                $componentDetails = $stmtCheckComponent->fetch(PDO::FETCH_ASSOC);
+                if (!$componentDetails || $markObtained > $componentDetails['max_mark']) {
+                    $failCount++;
+                    $failedMarks[] = ['data' => $markData, 'reason' => 'Invalid assessment component or mark exceeds max mark.'];
+                    continue;
+                }
+
+                // Get enrollment details
+                $stmtCheckEnrollment->execute([$enrollmentId]);
+                $enrollmentDetails = $stmtCheckEnrollment->fetch(PDO::FETCH_ASSOC);
+                if (!$enrollmentDetails || $enrollmentDetails['course_id'] !== $componentDetails['course_id']) {
+                    $failCount++;
+                    $failedMarks[] = ['data' => $markData, 'reason' => 'Enrollment and assessment component do not belong to the same course.'];
+                    continue;
+                }
+
+                // Check authorization
+                if ($userRole === 'lecturer') {
+                    $stmtCheckLecturer = $this->pdo->prepare("SELECT COUNT(*) FROM courses WHERE course_id = ? AND lecturer_id = ?");
+                    $stmtCheckLecturer->execute([$enrollmentDetails['course_id'], $recordedBy]);
+                    if ($stmtCheckLecturer->fetchColumn() === 0) {
+                        $failCount++;
+                        $failedMarks[] = ['data' => $markData, 'reason' => 'Access denied: Lecturer not assigned to this course.'];
+                        continue;
                     }
-                } elseif ($requesterRole !== 'admin') {
-                    $errors[] = "Access denied: Insufficient privileges to update marks.";
+                } elseif ($userRole !== 'admin') {
+                    $failCount++;
+                    $failedMarks[] = ['data' => $markData, 'reason' => 'Access denied: Insufficient privileges.'];
                     continue;
                 }
 
-                // Check if a mark already exists for this student, course, and assessment component
-                $stmtCheck = $this->pdo->prepare("SELECT student_mark_id FROM student_marks WHERE student_id = ? AND assessment_component_id = ? AND course_id = ?");
-                $stmtCheck->execute([$studentId, $assessmentComponentId, $courseId]);
-                $existingMark = $stmtCheck->fetch(PDO::FETCH_ASSOC);
+                // Check if a mark for this student/component already exists
+                $stmtCheckMark->execute([$enrollmentId, $assessmentId]);
+                $existingMarkId = $stmtCheckMark->fetchColumn();
 
-                if ($existingMark) {
-                    // Update existing mark
-                    $stmtUpdate = $this->pdo->prepare("UPDATE student_marks SET mark = ? WHERE student_mark_id = ?");
-                    $stmtUpdate->execute([$mark, $existingMark['student_mark_id']]);
-                    $updatedCount++;
+                if ($existingMarkId) {
+                    // Mark exists, so update it
+                    $stmtUpdateMark->execute([$markObtained, $recordedBy, $existingMarkId]);
                 } else {
-                    // Insert new mark
-                    $stmtInsert = $this->pdo->prepare("INSERT INTO student_marks (student_id, assessment_component_id, course_id, mark) VALUES (?, ?, ?, ?)");
-                    $stmtInsert->execute([$studentId, $assessmentComponentId, $courseId, $mark]);
-                    $insertedCount++;
+                    // Mark does not exist, so insert it
+                    $stmtInsertMark->execute([$enrollmentId, $assessmentId, $markObtained, $recordedBy]);
                 }
+                $successCount++;
             }
 
             $this->pdo->commit();
             $response->getBody()->write(json_encode([
-                'message' => "Grades updated successfully. Inserted: {$insertedCount}, Updated: {$updatedCount}.",
-                'errors' => $errors
+                'message' => "Batch update completed. {$successCount} marks processed successfully. {$failCount} marks failed.",
+                'failed_marks' => $failedMarks
             ]));
             return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
 
         } catch (PDOException $e) {
             $this->pdo->rollBack();
-            error_log("Error batch updating student marks: " . $e->getMessage());
-            $response->getBody()->write(json_encode(['error' => 'Failed to save grades due to a database error.']));
+            error_log("Batch update failed: " . $e->getMessage());
+            $response->getBody()->write(json_encode(['error' => 'Database transaction failed. No marks were updated.']));
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
         }
     }

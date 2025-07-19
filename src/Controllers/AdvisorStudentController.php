@@ -18,55 +18,59 @@ class AdvisorStudentController
         $this->notificationController = $notificationController;
     }
 
-    /**
-     * Get all advisor-student assignments.
-     * Accessible to:
-     * - Admin: All assignments.
-     * - Advisor: Their own assigned students.
-     * - Student: Their assigned advisor.
-     *
-     * @param Request $request The request object.
-     * @param Response $response The response object.
-     * @return Response The response object with data or error.
-     */
-    public function getAllAdvisorStudents(Request $request, Response $response): Response
-    {
-        $jwt = $request->getAttribute('jwt');
-        $userId = $jwt->user_id;
-        $userRole = $jwt->role;
+/**
+ * Get all advisor-student assignments.
+ * Accessible to:
+ * - Admin: All assignments.
+ * - Advisor: Their own assigned students.
+ * - Student: Their assigned advisor.
+ *
+ * @param Request $request The request object.
+ * @param Response $response The response object.
+ * @return Response The response object with data or error.
+ */
+public function getAllAdvisorStudents(Request $request, Response $response): Response
+{
+    $jwt = $request->getAttribute('jwt');
+    $userId = $jwt->user_id;
+    $userRole = $jwt->role;
 
-        $query = "SELECT ads.*,
-                         a.full_name AS advisor_name, a.email AS advisor_email,
-                         s.full_name AS student_name, s.matric_number, s.email AS student_email
-                  FROM advisor_student ads
-                  JOIN users a ON ads.advisor_id = a.user_id
-                  JOIN users s ON ads.student_id = s.user_id";
-        $params = [];
+    $query = "SELECT ads.*,
+                     a.full_name AS advisor_name, a.email AS advisor_email,
+                     s.full_name AS student_name, s.matric_number, s.email AS student_email,
+                     MAX(n.meeting_date) AS last_meeting_date
+              FROM advisor_student ads
+              JOIN users a ON ads.advisor_id = a.user_id
+              JOIN users s ON ads.student_id = s.user_id
+              LEFT JOIN advisor_notes n ON ads.advisor_student_id = n.advisor_student_id";
+    $params = [];
 
-        if ($userRole === 'advisor') {
-            $query .= " WHERE ads.advisor_id = ?";
-            $params[] = $userId;
-        } elseif ($userRole === 'student') {
-            $query .= " WHERE ads.student_id = ?";
-            $params[] = $userId;
-        } elseif ($userRole !== 'admin') {
-            $response->getBody()->write(json_encode(['error' => 'Access denied for this role.']));
-            return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
-        }
-
-        try {
-            $stmt = $this->pdo->prepare($query);
-            $stmt->execute($params);
-            $assignments = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            $response->getBody()->write(json_encode($assignments));
-            return $response->withHeader('Content-Type', 'application/json');
-        } catch (PDOException $e) {
-            error_log("Error fetching all advisor-student assignments: " . $e->getMessage());
-            $response->getBody()->write(json_encode(['error' => 'Database error: Could not retrieve advisor-student assignments.']));
-            return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
-        }
+    if ($userRole === 'advisor') {
+        $query .= " WHERE ads.advisor_id = ?";
+        $params[] = $userId;
+    } elseif ($userRole === 'student') {
+        $query .= " WHERE ads.student_id = ?";
+        $params[] = $userId;
+    } elseif ($userRole !== 'admin') {
+        $response->getBody()->write(json_encode(['error' => 'Access denied for this role.']));
+        return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
     }
+    
+    $query .= " GROUP BY ads.advisor_student_id, a.full_name, a.email, s.full_name, s.matric_number, s.email";
+
+    try {
+        $stmt = $this->pdo->prepare($query);
+        $stmt->execute($params);
+        $assignments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $response->getBody()->write(json_encode($assignments));
+        return $response->withHeader('Content-Type', 'application/json');
+    } catch (PDOException $e) {
+        error_log("Error fetching all advisor-student assignments: " . $e->getMessage());
+        $response->getBody()->write(json_encode(['error' => 'Database error: Could not retrieve advisor-student assignments.']));
+        return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+    }
+}
 
     /**
      * Get a single advisor-student assignment by ID.
@@ -93,8 +97,8 @@ class AdvisorStudentController
         }
 
         $query = "SELECT ads.*,
-                         a.full_name AS advisor_name, a.email AS advisor_email,
-                         s.full_name AS student_name, s.matric_number, s.email AS student_email
+                          a.full_name AS advisor_name, a.email AS advisor_email,
+                          s.full_name AS student_name, s.matric_number, s.email AS student_email
                   FROM advisor_student ads
                   JOIN users a ON ads.advisor_id = a.user_id
                   JOIN users s ON ads.student_id = s.user_id

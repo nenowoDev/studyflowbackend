@@ -29,12 +29,12 @@ INSERT INTO `users` (`username`, `password_hash`, `role`, `full_name`, `email`, 
 
 -- --- Dummy Data for `courses` table ---
 -- Assuming lecturer01 (user_id 2) and lecturer02 (user_id 3)
-INSERT INTO `courses` (`course_code`, `course_name`, `lecturer_id`) VALUES
-('SECJ3483', 'Web Technology', 2); -- Assigned to Dr. Alice Smith
-INSERT INTO `courses` (`course_code`, `course_name`, `lecturer_id`) VALUES
-('SECR2043', 'Database Systems', 3); -- Assigned to Prof. Bob Johnson
-INSERT INTO `courses` (`course_code`, `course_name`, `lecturer_id`) VALUES
-('SCSR1013', 'Programming I', 2); -- Assigned to Dr. Alice Smith
+INSERT INTO `courses` (`course_code`, `course_name`, `lecturer_id`, 'credit_hours') VALUES
+('SECJ3483', 'Web Technology', 2, 3); -- Assigned to Dr. Alice Smith
+INSERT INTO `courses` (`course_code`, `course_name`, `lecturer_id`, 'credit_hours') VALUES
+('SECR2043', 'Database Systems', 3, 3); -- Assigned to Prof. Bob Johnson
+INSERT INTO `courses` (`course_code`, `course_name`, `lecturer_id`, 'credit_hours') VALUES
+('SCSR1013', 'Programming I', 2, 3); -- Assigned to Dr. Alice Smith
 
 -- --- Dummy Data for `enrollments` table ---
 -- Assuming students (user_id 6, 7, 8, 9) and courses (course_id 1, 2, 3)

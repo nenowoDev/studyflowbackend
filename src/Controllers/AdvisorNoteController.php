@@ -11,7 +11,8 @@ class AdvisorNoteController
 {
     private PDO $pdo;
     private NotificationController $notificationController;
-    public function __construct(PDO $pdo,NotificationController $notificationController)
+
+    public function __construct(PDO $pdo, NotificationController $notificationController)
     {
         $this->pdo = $pdo;
         $this->notificationController = $notificationController;
@@ -35,13 +36,13 @@ class AdvisorNoteController
         $userRole = $jwt->role;
 
         $query = "SELECT an.*,
-                         ads.advisor_id, ads.student_id,
-                         a.full_name AS advisor_name,
-                         s.full_name AS student_name, s.matric_number
-                  FROM advisor_notes an
-                  JOIN advisor_student ads ON an.advisor_student_id = ads.advisor_student_id
-                  JOIN users a ON ads.advisor_id = a.user_id
-                  JOIN users s ON ads.student_id = s.user_id";
+                        ads.advisor_id, ads.student_id,
+                        a.full_name AS advisor_name,
+                        s.full_name AS student_name, s.matric_number
+                    FROM advisor_notes an
+                    JOIN advisor_student ads ON an.advisor_student_id = ads.advisor_student_id
+                    JOIN users a ON ads.advisor_id = a.user_id
+                    JOIN users s ON ads.student_id = s.user_id";
         $params = [];
 
         if ($userRole === 'advisor') {
@@ -54,11 +55,21 @@ class AdvisorNoteController
             $response->getBody()->write(json_encode(['error' => 'Access denied for this role.']));
             return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
         }
+        
+        $query .= " ORDER BY an.created_at DESC";
 
         try {
             $stmt = $this->pdo->prepare($query);
             $stmt->execute($params);
             $notes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Decode the recommendations from JSON string
+            foreach ($notes as &$note) {
+                if (isset($note['recommendations'])) {
+                    $note['recommendations'] = json_decode($note['recommendations'], true);
+                }
+            }
+            unset($note); // Unset the reference
 
             $response->getBody()->write(json_encode($notes));
             return $response->withHeader('Content-Type', 'application/json');
@@ -94,14 +105,14 @@ class AdvisorNoteController
         }
 
         $query = "SELECT an.*,
-                         ads.advisor_id, ads.student_id,
-                         a.full_name AS advisor_name,
-                         s.full_name AS student_name, s.matric_number
-                  FROM advisor_notes an
-                  JOIN advisor_student ads ON an.advisor_student_id = ads.advisor_student_id
-                  JOIN users a ON ads.advisor_id = a.user_id
-                  JOIN users s ON ads.student_id = s.user_id
-                  WHERE an.note_id = ?";
+                        ads.advisor_id, ads.student_id,
+                        a.full_name AS advisor_name,
+                        s.full_name AS student_name, s.matric_number
+                    FROM advisor_notes an
+                    JOIN advisor_student ads ON an.advisor_student_id = ads.advisor_student_id
+                    JOIN users a ON ads.advisor_id = a.user_id
+                    JOIN users s ON ads.student_id = s.user_id
+                    WHERE an.note_id = ?";
         $params = [$noteId];
 
         try {
@@ -124,6 +135,11 @@ class AdvisorNoteController
             } elseif ($userRole !== 'admin') {
                 $response->getBody()->write(json_encode(['error' => 'Access denied for this role.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+            }
+            
+            // Decode the recommendations from JSON string
+            if (isset($note['recommendations'])) {
+                $note['recommendations'] = json_decode($note['recommendations'], true);
             }
 
             $response->getBody()->write(json_encode($note));
@@ -151,52 +167,59 @@ class AdvisorNoteController
         $userId = $jwt->user_id;
         $userRole = $jwt->role;
 
+        // Only admins and advisors can add notes
+        if ($userRole !== 'admin' && $userRole !== 'advisor') {
+            $response->getBody()->write(json_encode(['error' => 'Access denied: Only admins and advisors can add notes.']));
+            return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+        }
+
         $data = json_decode($request->getBody()->getContents(), true);
 
-        // Basic validation for required fields
-        if (empty($data['advisor_student_id']) || empty($data['note_content'])) {
-            $response->getBody()->write(json_encode(['error' => 'Advisor-student assignment ID and note content are required.']));
+        // Update validation to match front-end payload
+        if (empty($data['student_id']) || empty($data['notes']) || empty($data['date'])) {
+            $response->getBody()->write(json_encode(['error' => 'Student ID, date, and notes are required.']));
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
         try {
-            // Validate advisor_student_id exists and belongs to the current advisor (if advisor role)
-            $stmtAssignment = $this->pdo->prepare("SELECT advisor_id FROM advisor_student WHERE advisor_student_id = ?");
-            $stmtAssignment->execute([$data['advisor_student_id']]);
+            // Find the advisor_student_id from the student_id and current advisor's user_id
+            $stmtAssignment = $this->pdo->prepare("SELECT advisor_student_id FROM advisor_student WHERE student_id = ? AND advisor_id = ?");
+            $stmtAssignment->execute([$data['student_id'], $userId]);
             $assignment = $stmtAssignment->fetch(PDO::FETCH_ASSOC);
 
             if (!$assignment) {
-                $response->getBody()->write(json_encode(['error' => 'Invalid advisor-student assignment ID.']));
+                $response->getBody()->write(json_encode(['error' => 'Student is not assigned to this advisor.']));
                 return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
             }
 
-            // Authorization check
-            if ($userRole === 'advisor' && (string) $assignment['advisor_id'] !== (string) $userId) {
-                $response->getBody()->write(json_encode(['error' => 'Access denied: You can only add notes for your assigned students.']));
-                return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
-            } elseif ($userRole !== 'admin' && $userRole !== 'advisor') {
-                $response->getBody()->write(json_encode(['error' => 'Access denied: Only admins and advisors can add notes.']));
-                return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
-            }
+            $advisorStudentId = $assignment['advisor_student_id'];
+            
+            $stmt = $this->pdo->prepare("
+                INSERT INTO advisor_notes (advisor_student_id, note_content, meeting_date, recommendations, follow_up_required) 
+                VALUES (?, ?, ?, ?, ?)
+            ");
+            
+            $recommendationsJson = isset($data['recommendations']) ? json_encode($data['recommendations']) : '[]';
 
-            $stmt = $this->pdo->prepare("INSERT INTO advisor_notes (advisor_student_id, note_content, meeting_date) VALUES (?, ?, ?)");
             $stmt->execute([
-                $data['advisor_student_id'],
-                $data['note_content'],
-                $data['meeting_date'] ?? null // Meeting date is optional
+                $advisorStudentId,
+                $data['notes'], // Map 'notes' to 'note_content'
+                $data['date'], // Map 'date' to 'meeting_date'
+                $recommendationsJson,
+                $data['follow_up_required'] ?? false
             ]);
 
-            
+            $noteId = $this->pdo->lastInsertId();
+
             $this->notificationController->createNotification(
-                $data["advisor_student_id"],
+                $data['student_id'], // Pass the student's user ID
                 "New Advisor Notes for you",
                 "{$jwt->user} has added a new note for you!",
                 "Advisor Notes",
-                "{$this->pdo->lastInsertId()}"
+                "{$noteId}"
             );
             
-            
-            $response->getBody()->write(json_encode(['message' => 'Advisor note added successfully', 'note_id' => $this->pdo->lastInsertId()]));
+            $response->getBody()->write(json_encode(['message' => 'Advisor note added successfully', 'note_id' => $noteId]));
             return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
         } catch (PDOException $e) {
             error_log("Error adding advisor note: " . $e->getMessage());
@@ -238,7 +261,7 @@ class AdvisorNoteController
         try {
             // Fetch note details to check authorization
             $stmtNote = $this->pdo->prepare("
-                SELECT an.note_id, ads.advisor_id
+                SELECT an.note_id, ads.advisor_id, ads.student_id
                 FROM advisor_notes an
                 JOIN advisor_student ads ON an.advisor_student_id = ads.advisor_student_id
                 WHERE an.note_id = ?
@@ -263,35 +286,27 @@ class AdvisorNoteController
             $setClauses = [];
             $params = [];
 
-            if (isset($data['note_content'])) {
+            // Update field mapping to handle `notes`, `date`, `recommendations`, and `follow_up_required`
+            if (isset($data['notes'])) {
                 $setClauses[] = 'note_content = ?';
-                $params[] = $data['note_content'];
+                $params[] = $data['notes'];
             }
-            if (isset($data['meeting_date'])) {
+            if (isset($data['date'])) {
                 $setClauses[] = 'meeting_date = ?';
-                $params[] = $data['meeting_date'];
+                $params[] = $data['date'];
             }
-            if (isset($data['advisor_student_id'])) {
-                // Validate if new advisor_student_id is valid and belongs to the current advisor (if advisor role)
-                $stmtAssignment = $this->pdo->prepare("SELECT advisor_id FROM advisor_student WHERE advisor_student_id = ?");
-                $stmtAssignment->execute([$data['advisor_student_id']]);
-                $newAssignment = $stmtAssignment->fetch(PDO::FETCH_ASSOC);
-
-                if (!$newAssignment) {
-                    $response->getBody()->write(json_encode(['error' => 'Invalid new advisor-student assignment ID.']));
-                    return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
-                }
-                if ($userRole === 'advisor' && (string) $newAssignment['advisor_id'] !== (string) $userId) {
-                    $response->getBody()->write(json_encode(['error' => 'Access denied: You can only reassign notes to your own assigned students.']));
-                    return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
-                }
-                $setClauses[] = 'advisor_student_id = ?';
-                $params[] = $data['advisor_student_id'];
+            if (isset($data['recommendations'])) {
+                $setClauses[] = 'recommendations = ?';
+                $params[] = json_encode($data['recommendations']);
+            }
+            if (isset($data['follow_up_required'])) {
+                $setClauses[] = 'follow_up_required = ?';
+                $params[] = $data['follow_up_required'];
             }
 
             if (empty($setClauses)) {
-                $response->getBody()->write(json_encode(['error' => 'No valid fields provided for update.']));
-                return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+                $response->getBody()->write(json_encode(['message' => 'No valid fields provided for update.']));
+                return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
             }
 
             $params[] = $noteId; // Add the note ID for the WHERE clause
@@ -302,13 +317,22 @@ class AdvisorNoteController
             $stmt->execute($params);
 
             if ($stmt->rowCount() === 0) {
-                $response->getBody()->write(json_encode(['message' => 'Advisor note updated successfully (or no changes made).']));
-                return $response->withHeader('Content-Type', 'application/json');
+                 // Check if the record exists to avoid returning 404 unnecessarily
+                 $checkStmt = $this->pdo->prepare("SELECT 1 FROM advisor_notes WHERE note_id = ?");
+                 $checkStmt->execute([$noteId]);
+                 if (!$checkStmt->fetch()) {
+                     $response->getBody()->write(json_encode(['error' => 'Advisor note not found.']));
+                     return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+                 }
+                 $response->getBody()->write(json_encode(['message' => 'Advisor note updated successfully (or no changes were made).']));
+                 return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
             }
-
             
+            // Check if student_id is set in the data for notification, otherwise use existing
+            $studentIdForNotification = isset($data['student_id']) ? $data['student_id'] : $existingNote['student_id'];
+
             $this->notificationController->createNotification(
-                $data["advisor_student_id"],
+                $studentIdForNotification,
                 "Advisor Notes updated",
                 "{$jwt->user} has updated a note!",
                 "Advisor Notes",

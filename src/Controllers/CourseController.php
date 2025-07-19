@@ -30,6 +30,7 @@ class CourseController
     {
         try {
             // Join with users table to get lecturer's full name
+            // The "c.*" wildcard automatically includes the new credit_hours column. No change needed here.
             $stmt = $this->pdo->query("SELECT c.*, u.full_name AS lecturer_name FROM courses c JOIN users u ON c.lecturer_id = u.user_id");
             $courses = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -61,7 +62,7 @@ class CourseController
         }
 
         try {
-            // Join with users table to get lecturer's full name
+            // The "c.*" wildcard automatically includes the new credit_hours column. No change needed here.
             $stmt = $this->pdo->prepare("SELECT c.*, u.full_name AS lecturer_name FROM courses c JOIN users u ON c.lecturer_id = u.user_id WHERE c.course_id = ?");
             $stmt->execute([$courseId]);
             $course = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -96,9 +97,9 @@ class CourseController
 
         $data = json_decode($request->getBody()->getContents(), true);
 
-        // Basic validation for required fields
-        if (empty($data['course_code']) || empty($data['course_name']) || empty($data['lecturer_id'])) {
-            $response->getBody()->write(json_encode(['error' => 'Course code, name, and lecturer ID are required.']));
+        // --- CHANGE: Add validation for the new credit_hours column ---
+        if (empty($data['course_code']) || empty($data['course_name']) || empty($data['lecturer_id']) || !isset($data['credit_hours'])) {
+            $response->getBody()->write(json_encode(['error' => 'Course code, name, lecturer ID, and credit hours are required.']));
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
@@ -131,11 +132,13 @@ class CourseController
         }
 
         try {
-            $stmt = $this->pdo->prepare("INSERT INTO courses (course_code, course_name, lecturer_id) VALUES (?, ?, ?)");
+            // --- CHANGE: Add credit_hours to the INSERT statement and parameters ---
+            $stmt = $this->pdo->prepare("INSERT INTO courses (course_code, course_name, lecturer_id, credit_hours) VALUES (?, ?, ?, ?)");
             $stmt->execute([
                 $data['course_code'],
                 $data['course_name'],
-                $data['lecturer_id']
+                $data['lecturer_id'],
+                $data['credit_hours'] // New value
             ]);
 
             $newCourseId = $this->pdo->lastInsertId();
@@ -161,8 +164,6 @@ class CourseController
                 "New Course",
                 $newCourseId
             );
-
-
 
             $response->getBody()->write(json_encode(['message' => 'Course added successfully and notifications sent.', 'course_id' => $newCourseId]));
             return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
@@ -211,13 +212,16 @@ class CourseController
         $originalCourseName = '';
         $originalLecturerId = null;
         $originalLecturerFullName = '';
+        $originalCreditHours = null; // --- CHANGE: New variable for credit hours ---
 
         try {
+            // --- CHANGE: Add credit_hours to the SELECT statement to fetch the current value ---
             $stmtCurrent = $this->pdo->prepare("
                 SELECT 
                     c.course_code, 
                     c.course_name, 
                     c.lecturer_id,
+                    c.credit_hours,
                     u.full_name AS lecturer_full_name
                 FROM courses c
                 JOIN users u ON c.lecturer_id = u.user_id
@@ -235,6 +239,7 @@ class CourseController
             $originalCourseName = $currentCourse['course_name'];
             $originalLecturerId = $currentCourse['lecturer_id'];
             $originalLecturerFullName = $currentCourse['lecturer_full_name'];
+            $originalCreditHours = $currentCourse['credit_hours']; // --- CHANGE: Assign the fetched value ---
 
             if ($userRole === 'lecturer' && (string) $originalLecturerId !== (string) $userId) {
                 $response->getBody()->write(json_encode(['error' => 'Access denied: You can only update courses you are assigned to.']));
@@ -255,7 +260,8 @@ class CourseController
         $newLecturerId = $originalLecturerId; 
         $newLecturerFullName = $originalLecturerFullName; 
         $newCourseCode = $originalCourseCode; 
-        $newCourseName = $originalCourseName; 
+        $newCourseName = $originalCourseName;
+        $newCreditHours = $originalCreditHours; // --- CHANGE: New variable for the new value ---
 
         if (isset($data['course_code']) && $data['course_code'] !== $originalCourseCode) {
             $setClauses[] = 'course_code = ?';
@@ -267,6 +273,14 @@ class CourseController
             $params[] = $data['course_name'];
             $newCourseName = $data['course_name'];
         }
+
+        // --- CHANGE: Add logic to handle the new credit_hours column ---
+        if (isset($data['credit_hours']) && $data['credit_hours'] !== $originalCreditHours) {
+            $setClauses[] = 'credit_hours = ?';
+            $params[] = $data['credit_hours'];
+            $newCreditHours = $data['credit_hours'];
+        }
+
         if (isset($data['lecturer_id']) && $data['lecturer_id'] !== $originalLecturerId) {
 
             $stmtNewLecturer = $this->pdo->prepare("SELECT user_id, role, full_name FROM users WHERE user_id = ? AND role = 'lecturer'");
@@ -297,31 +311,24 @@ class CourseController
         $params[] = $courseId; 
         $query = "UPDATE courses SET " . implode(', ', $setClauses) . " WHERE course_id = ?";
 
-
         try {
             $stmt = $this->pdo->prepare($query);
             $stmt->execute($params);
 
             if ($stmt->rowCount() === 0) {
-
-
                 $response->getBody()->write(json_encode(['message' => 'Course updated successfully (no changes applied as data was identical).']));
                 return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
             }
 
-
             $adminOrLecturerName = $jwt->full_name ?? $jwt->username ?? 'An Administrator/Lecturer';
-
 
             $stmtEnrolledStudents = $this->pdo->prepare("SELECT student_id FROM enrollments WHERE course_id = ?");
             $stmtEnrolledStudents->execute([$courseId]);
             $enrolledStudentIds = $stmtEnrolledStudents->fetchAll(PDO::FETCH_COLUMN);
 
-
             if ($newCourseName !== $originalCourseName || $newCourseCode !== $originalCourseCode) {
                 $message = "The course **{$originalCourseName} ({$originalCourseCode})** has been updated by {$adminOrLecturerName}. ";
                 $message .= "It is now known as **{$newCourseName} ({$newCourseCode})**.";
-
 
                 foreach ($enrolledStudentIds as $student_id) {
                     $this->notificationController->createNotification(
@@ -498,8 +505,7 @@ class CourseController
         }
     }
 
-    
- public function getEligibleStudents(Request $request, Response $response, array $args): Response
+    public function getEligibleStudents(Request $request, Response $response, array $args): Response
     {
         $courseId = $args['id'];
         $jwt = $request->getAttribute('jwt');
@@ -617,7 +623,9 @@ class CourseController
             'details' => $messages
         ]));
         return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
-    }public function getLecturerCourses(Request $request, Response $response, array $args): Response
+    }
+
+    public function getLecturerCourses(Request $request, Response $response, array $args): Response
     {
         $username = $args['username'];
         $jwt = $request->getAttribute('jwt');
@@ -640,6 +648,7 @@ class CourseController
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             }
 
+            // The "SELECT *" query will automatically fetch the new credit_hours column. No change needed here.
             $stmt = $this->pdo->prepare("SELECT * FROM courses WHERE lecturer_id = ?");
             $stmt->execute([$lecturerId]);
             $courses = $stmt->fetchAll(PDO::FETCH_ASSOC);

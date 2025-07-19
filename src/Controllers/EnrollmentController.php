@@ -20,6 +20,7 @@ class EnrollmentController
      * Get all enrollments.
      * Accessible to admin; students can only view their own enrollments.
      * Lecturers can view enrollments for their courses.
+     * Advisors can view enrollments for their advisees.
      *
      * @param Request $request The request object.
      * @param Response $response The response object.
@@ -31,7 +32,8 @@ class EnrollmentController
         $userId = $jwt->user_id;
         $userRole = $jwt->role;
 
-        $query = "SELECT e.*, u.full_name AS student_name, c.course_name, c.course_code 
+        // Added c.credit_hours to the SELECT statement for GPA calculation
+        $query = "SELECT e.*, u.full_name AS student_name, c.course_name, c.course_code, c.credit_hours
                   FROM enrollments e
                   JOIN users u ON e.student_id = u.user_id
                   JOIN courses c ON e.course_id = c.course_id";
@@ -44,8 +46,13 @@ class EnrollmentController
             // Lecturers can see enrollments for courses they teach
             $query .= " WHERE c.lecturer_id = ?";
             $params[] = $userId;
+        } elseif ($userRole === 'advisor') {
+            // Advisors can see enrollments for their assigned students
+            // Join with advisor_student to filter by the advisor's assigned students
+            $query .= " JOIN advisor_student ads ON e.student_id = ads.student_id WHERE ads.advisor_id = ?";
+            $params[] = $userId;
         } elseif ($userRole !== 'admin') {
-            // Deny access for other roles (e.g., advisor) unless explicitly allowed
+            // Deny access for other roles unless explicitly allowed
             $response->getBody()->write(json_encode(['error' => 'Access denied for this role.']));
             return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
         }
@@ -67,6 +74,7 @@ class EnrollmentController
     /**
      * Get a single enrollment by ID.
      * Accessible to admin; students can only view their own enrollments; lecturers can view for their courses.
+     * Advisors can view enrollments for their advisees.
      *
      * @param Request $request The request object.
      * @param Response $response The response object.
@@ -85,7 +93,8 @@ class EnrollmentController
             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
         }
 
-        $query = "SELECT e.*, u.full_name AS student_name, c.course_name, c.course_code, c.lecturer_id 
+        // Added c.credit_hours to the SELECT statement for GPA calculation
+        $query = "SELECT e.*, u.full_name AS student_name, c.course_name, c.course_code, c.lecturer_id, c.credit_hours
                   FROM enrollments e
                   JOIN users u ON e.student_id = u.user_id
                   JOIN courses c ON e.course_id = c.course_id
@@ -109,7 +118,15 @@ class EnrollmentController
             } elseif ($userRole === 'lecturer' && (string)$enrollment['lecturer_id'] !== (string)$userId) {
                 $response->getBody()->write(json_encode(['error' => 'Access denied: You can only view enrollments for your courses.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
-            } elseif ($userRole !== 'admin' && $userRole !== 'student' && $userRole !== 'lecturer') {
+            } elseif ($userRole === 'advisor') {
+                // Check if the student of this enrollment is an advisee of the current advisor
+                $stmtCheckAdvisorAdvisee = $this->pdo->prepare("SELECT COUNT(*) FROM advisor_student WHERE advisor_id = ? AND student_id = ?");
+                $stmtCheckAdvisorAdvisee->execute([$userId, $enrollment['student_id']]);
+                if ($stmtCheckAdvisorAdvisee->fetchColumn() === 0) {
+                    $response->getBody()->write(json_encode(['error' => 'Access denied: You can only view enrollments for your advisees.']));
+                    return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+                }
+            } elseif ($userRole !== 'admin') {
                 $response->getBody()->write(json_encode(['error' => 'Access denied for this role.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             }
@@ -325,7 +342,7 @@ class EnrollmentController
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
         }
     } 
-   /**
+    /**
      * Fetches students who are not currently enrolled in a specific course.
      * Accessible by lecturer role.
      * Endpoint: GET /enrollments/{id}/eligible-students
