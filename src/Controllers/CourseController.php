@@ -648,6 +648,248 @@ class CourseController
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             }
 
+
+// $this->notificationController->notifyRoles(
+//                 ['student'],
+//                 "New Course Available: {$courseCode} - {$courseName}",
+//                 "A new course, **{$courseName} ({$courseCode})**, taught by {$lecturerFullName}, is now available for enrollment!",
+//                 "New Course",
+//                 $newCourseId
+//             );
+
+//             $response->getBody()->write(json_encode(['message' => 'Course added successfully and notifications sent.', 'course_id' => $newCourseId]));
+//             return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
+//         } catch (PDOException $e) {
+//             if ($e->getCode() == '23000') { // SQLSTATE for Integrity Constraint Violation
+//                 $errorMessage = 'A course with this course code already exists.';
+//             } else {
+//                 $errorMessage = 'Database error: Could not add course.';
+//             }
+//             error_log("Error adding course: " . $e->getMessage());
+//             $response->getBody()->write(json_encode(['error' => $errorMessage]));
+//             return $response->withStatus(409)->withHeader('Content-Type', 'application/json');
+//         }
+//     }
+
+//     /**
+//      * Update an existing course.
+//      * Accessible to admin and lecturers (lecturers can only update their own courses).
+//      *
+//      * @param Request $request The request object.
+//      * @param Response $response The response object.
+//      * @param array $args Route arguments (e.g., course ID).
+//      * @return Response The response object with success message or error.
+//      */
+//     public function updateCourse(Request $request, Response $response, array $args): Response
+//     {
+//         $courseId = $args['id'];
+//         $jwt = $request->getAttribute('jwt');
+//         $userId = $jwt->user_id;
+//         $userRole = $jwt->role;
+
+//         if (!is_numeric($courseId)) {
+//             $response->getBody()->write(json_encode(['error' => 'Invalid course ID']));
+//             return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+//         }
+
+//         $data = json_decode($request->getBody()->getContents(), true);
+
+//         if (empty($data)) {
+//             $response->getBody()->write(json_encode(['message' => 'No data provided for update.']));
+//             return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
+//         }
+
+//         // --- 1. Fetch CURRENT course details and lecturer full name ---
+//         $originalCourseCode = '';
+//         $originalCourseName = '';
+//         $originalLecturerId = null;
+//         $originalLecturerFullName = '';
+//         $originalCreditHours = null; // --- CHANGE: New variable for credit hours ---
+
+//         try {
+//             // --- CHANGE: Add credit_hours to the SELECT statement to fetch the current value ---
+//             $stmtCurrent = $this->pdo->prepare("
+//                 SELECT 
+//                     c.course_code, 
+//                     c.course_name, 
+//                     c.lecturer_id,
+//                     c.credit_hours,
+//                     u.full_name AS lecturer_full_name
+//                 FROM courses c
+//                 JOIN users u ON c.lecturer_id = u.user_id
+//                 WHERE c.course_id = ?
+//             ");
+//             $stmtCurrent->execute([$courseId]);
+//             $currentCourse = $stmtCurrent->fetch(PDO::FETCH_ASSOC);
+
+//             if (!$currentCourse) {
+//                 $response->getBody()->write(json_encode(['error' => 'Course not found.']));
+//                 return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+//             }
+
+//             $originalCourseCode = $currentCourse['course_code'];
+//             $originalCourseName = $currentCourse['course_name'];
+//             $originalLecturerId = $currentCourse['lecturer_id'];
+//             $originalLecturerFullName = $currentCourse['lecturer_full_name'];
+//             $originalCreditHours = $currentCourse['credit_hours']; // --- CHANGE: Assign the fetched value ---
+
+//             if ($userRole === 'lecturer' && (string) $originalLecturerId !== (string) $userId) {
+//                 $response->getBody()->write(json_encode(['error' => 'Access denied: You can only update courses you are assigned to.']));
+//                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+//             } elseif ($userRole !== 'admin' && $userRole !== 'lecturer') {
+//                 $response->getBody()->write(json_encode(['error' => 'Access denied: Only admins and lecturers can update courses.']));
+//                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+//             }
+
+//         } catch (PDOException $e) {
+//             error_log("Error fetching current course details for ID {$courseId}: " . $e->getMessage());
+//             $response->getBody()->write(json_encode(['error' => 'Database error: Could not retrieve current course details.']));
+//             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+//         }
+
+//         $setClauses = [];
+//         $params = [];
+//         $newLecturerId = $originalLecturerId; 
+//         $newLecturerFullName = $originalLecturerFullName; 
+//         $newCourseCode = $originalCourseCode; 
+//         $newCourseName = $originalCourseName;
+//         $newCreditHours = $originalCreditHours; // --- CHANGE: New variable for the new value ---
+
+//         if (isset($data['course_code']) && $data['course_code'] !== $originalCourseCode) {
+//             $setClauses[] = 'course_code = ?';
+//             $params[] = $data['course_code'];
+//             $newCourseCode = $data['course_code'];
+//         }
+//         if (isset($data['course_name']) && $data['course_name'] !== $originalCourseName) {
+//             $setClauses[] = 'course_name = ?';
+//             $params[] = $data['course_name'];
+//             $newCourseName = $data['course_name'];
+//         }
+
+//         // --- CHANGE: Add logic to handle the new credit_hours column ---
+//         if (isset($data['credit_hours']) && $data['credit_hours'] !== $originalCreditHours) {
+//             $setClauses[] = 'credit_hours = ?';
+//             $params[] = $data['credit_hours'];
+//             $newCreditHours = $data['credit_hours'];
+//         }
+
+//         if (isset($data['lecturer_id']) && $data['lecturer_id'] !== $originalLecturerId) {
+
+//             $stmtNewLecturer = $this->pdo->prepare("SELECT user_id, role, full_name FROM users WHERE user_id = ? AND role = 'lecturer'");
+//             $stmtNewLecturer->execute([$data['lecturer_id']]);
+//             $newLecturer = $stmtNewLecturer->fetch(PDO::FETCH_ASSOC);
+
+//             if (!$newLecturer) {
+//                 $response->getBody()->write(json_encode(['error' => 'Invalid new lecturer ID or user is not a lecturer.']));
+//                 return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+//             }
+
+//             if ($userRole === 'lecturer' && (string) $data['lecturer_id'] !== (string) $userId) {
+//                 $response->getBody()->write(json_encode(['error' => 'Access denied: Lecturers cannot change course lecturer to someone else.']));
+//                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
+//             }
+
+//             $newLecturerId = $newLecturer['user_id'];
+//             $newLecturerFullName = $newLecturer['full_name'];
+//             $setClauses[] = 'lecturer_id = ?';
+//             $params[] = $newLecturerId;
+//         }
+
+//         if (empty($setClauses)) {
+//             $response->getBody()->write(json_encode(['message' => 'No valid fields provided for update or no changes detected.']));
+//             return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
+//         }
+
+//         $params[] = $courseId; 
+//         $query = "UPDATE courses SET " . implode(', ', $setClauses) . " WHERE course_id = ?";
+
+//         try {
+//             $stmt = $this->pdo->prepare($query);
+//             $stmt->execute($params);
+
+//             if ($stmt->rowCount() === 0) {
+//                 $response->getBody()->write(json_encode(['message' => 'Course updated successfully (no changes applied as data was identical).']));
+//                 return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
+//             }
+
+//             $adminOrLecturerName = $jwt->full_name ?? $jwt->username ?? 'An Administrator/Lecturer';
+
+//             $stmtEnrolledStudents = $this->pdo->prepare("SELECT student_id FROM enrollments WHERE course_id = ?");
+//             $stmtEnrolledStudents->execute([$courseId]);
+//             $enrolledStudentIds = $stmtEnrolledStudents->fetchAll(PDO::FETCH_COLUMN);
+
+//             if ($newCourseName !== $originalCourseName || $newCourseCode !== $originalCourseCode) {
+//                 $message = "The course **{$originalCourseName} ({$originalCourseCode})** has been updated by {$adminOrLecturerName}. ";
+//                 $message .= "It is now known as **{$newCourseName} ({$newCourseCode})**.";
+
+//                 foreach ($enrolledStudentIds as $student_id) {
+//                     $this->notificationController->createNotification(
+//                         $student_id,
+//                         "Course Update: {$newCourseCode} - {$newCourseName}",
+//                         $message,
+//                         "course_update",
+//                         $courseId
+//                     );
+//                 }
+
+//                 if ((string) $originalLecturerId !== (string) $userId || $userRole === 'admin') {
+//                     $this->notificationController->createNotification(
+//                         $originalLecturerId,
+//                         "Your Course Updated: {$newCourseCode} - {$newCourseName}",
+//                         $message,
+//                         "course_update",
+//                         $courseId
+//                     );
+//                 }
+//             }
+
+
+//             if ($newLecturerId !== $originalLecturerId) {
+//                 $this->notificationController->createNotification(
+//                     $newLecturerId,
+//                     "New Course Assignment!",
+//                     "{$adminOrLecturerName} has assigned you to teach the course: **{$newCourseName} ({$newCourseCode})**.",
+//                     "course_lecturer_change",
+//                     $courseId
+//                 );
+
+//                 $this->notificationController->createNotification(
+//                     $originalLecturerId,
+//                     "Course Reassignment",
+//                     "{$adminOrLecturerName} has reassigned you from teaching **{$originalCourseName} ({$originalCourseCode})**. It is now taught by {$newLecturerFullName}.",
+//                     "course_lecturer_change",
+//                     $courseId
+//                 );
+
+//                 $studentLecturerChangeMessage = "The lecturer for **{$newCourseName} ({$newCourseCode})** has changed from {$originalLecturerFullName} to {$newLecturerFullName}.";
+//                 foreach ($enrolledStudentIds as $student_id) {
+//                     $this->notificationController->createNotification(
+//                         $student_id,
+//                         "Lecturer Change: {$newCourseCode} - {$newCourseName}",
+//                         $studentLecturerChangeMessage,
+//                         "course_lecturer_change",
+//                         $courseId
+//                     );
+//                 }
+//             }
+
+//             $response->getBody()->write(json_encode(['message' => 'Course updated successfully and notifications sent.']));
+//             return $response->withHeader('Content-Type', 'application/json');
+
+//         } catch (PDOException $e) {
+//             if ($e->getCode() == '23000') {
+//                 $errorMessage = 'A course with this course code already exists.';
+//             } else {
+//                 $errorMessage = 'Database error: Could not update course.';
+//             }
+//             error_log("Error updating course ID {$courseId}: " . $e->getMessage());
+//             $response->getBody()->write(json_encode(['error' => $errorMessage]));
+//             return $response->withStatus(409)->withHeader('Content-Type', 'application/json');
+//         }
+//     }
+
+
+
             // The "SELECT *" query will automatically fetch the new credit_hours column. No change needed here.
             $stmt = $this->pdo->prepare("SELECT * FROM courses WHERE lecturer_id = ?");
             $stmt->execute([$lecturerId]);
