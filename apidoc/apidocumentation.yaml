@@ -25,7 +25,7 @@ components:
         username:
           type: string
           description: User's login username.
-        password_hash:
+        password:
           type: string
           writeOnly: true
           description: Hashed password for the user.
@@ -65,7 +65,7 @@ components:
           description: Timestamp when the user record was last updated.
       required:
         - username
-        - password_hash
+        - password
         - role
         - full_name
 
