@@ -5,7 +5,7 @@ function getPDO()
     $port = 3306;
     $db = 'studyflow';
     $user = 'root';
-    $pass = '';
+    $pass = 'yourpassword';
     $charset = 'utf8mb4';
 
     $dsn = "mysql:host=$host;port=$port;dbname=$db;charset=$charset";

@@ -10,11 +10,14 @@ use PDOException;
 class StudentMarkController
 {
     private PDO $pdo;
+    private NotificationController $notificationController; // Declare NotificationController
 
-    public function __construct(PDO $pdo)
+    public function __construct(PDO $pdo, NotificationController $notificationController) // Inject NotificationController
     {
         $this->pdo = $pdo;
+        $this->notificationController = $notificationController; // Assign it to a property
     }
+
     /**
      * Get anonymized student marks for peer comparison
      * Students can see aggregated data without individual student identities (except their own)
@@ -248,37 +251,47 @@ class StudentMarkController
         }
 
         try {
+            $this->pdo->beginTransaction(); // Start transaction
+
             // Validate enrollment and component, and check lecturer's authority over the course
             $stmtCheck = $this->pdo->prepare("
                 SELECT
                     e.student_id,
+                    u.full_name AS student_name,
                     ac.course_id,
                     c.lecturer_id,
-                    ac.max_mark
+                    ac.max_mark,
+                    ac.component_name,
+                    c.course_name
                 FROM enrollments e
                 JOIN assessment_components ac ON ac.course_id = e.course_id
                 JOIN courses c ON e.course_id = c.course_id
+                JOIN users u ON e.student_id = u.user_id
                 WHERE e.enrollment_id = ? AND ac.component_id = ?
             ");
             $stmtCheck->execute([$data['enrollment_id'], $data['component_id']]);
             $checkResult = $stmtCheck->fetch(PDO::FETCH_ASSOC);
 
             if (!$checkResult) {
+                $this->pdo->rollBack(); // Rollback on validation failure
                 $response->getBody()->write(json_encode(['error' => 'Invalid enrollment ID or component ID for this course.']));
                 return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
             }
 
             // Authorization check: Admin or Lecturer assigned to this course
             if ($userRole === 'lecturer' && (string)$checkResult['lecturer_id'] !== (string)$recordedBy) {
+                $this->pdo->rollBack(); // Rollback on authorization failure
                 $response->getBody()->write(json_encode(['error' => 'Access denied: You can only record marks for your assigned courses.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             } elseif ($userRole !== 'admin' && $userRole !== 'lecturer') {
+                $this->pdo->rollBack(); // Rollback on authorization failure
                 $response->getBody()->write(json_encode(['error' => 'Access denied: Only admins and lecturers can add student marks.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             }
 
             // Check if mark_obtained exceeds max_mark for the component
             if ($data['mark_obtained'] > $checkResult['max_mark']) {
+                $this->pdo->rollBack(); // Rollback on validation failure
                 $response->getBody()->write(json_encode(['error' => "Mark obtained ({$data['mark_obtained']}) exceeds the maximum mark allowed ({$checkResult['max_mark']}) for this component."]));
                 return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
             }
@@ -291,9 +304,23 @@ class StudentMarkController
                 $recordedBy
             ]);
 
-            $response->getBody()->write(json_encode(['message' => 'Student mark added successfully', 'mark_id' => $this->pdo->lastInsertId()]));
+            $markId = $this->pdo->lastInsertId();
+
+            // Notify the student about the new mark
+            $this->notificationController->createNotification(
+                $checkResult['student_id'],
+                "New Mark Recorded: {$checkResult['component_name']} in {$checkResult['course_code']}",
+                "A new mark of {$data['mark_obtained']}/{$checkResult['max_mark']} has been recorded for your '{$checkResult['component_name']}' component in '{$checkResult['course_name']}'.",
+                "new_mark",
+                $markId
+            );
+
+            $this->pdo->commit(); // Commit transaction
+
+            $response->getBody()->write(json_encode(['message' => 'Student mark added successfully', 'mark_id' => $markId]));
             return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
         } catch (PDOException $e) {
+            $this->pdo->rollBack(); // Rollback transaction on error
             if ($e->getCode() == '23000') { // Unique constraint violation
                 $errorMessage = 'A mark for this student and assessment component already exists. Use PUT to update.';
             } else {
@@ -334,17 +361,35 @@ class StudentMarkController
         }
 
         try {
-            // Fetch mark details to check authorization and max_mark
+            $this->pdo->beginTransaction(); // Start transaction
+
+            // Verify recordedBy user exists
+            $stmtCheckRecorder = $this->pdo->prepare("SELECT COUNT(*) FROM users WHERE user_id = ?");
+            $stmtCheckRecorder->execute([$recordedBy]);
+            if ($stmtCheckRecorder->fetchColumn() === 0) {
+                $this->pdo->rollBack();
+                error_log("ERROR: updateStudentMark - Recorded by user ID {$recordedBy} not found in users table.");
+                $response->getBody()->write(json_encode(['error' => 'The user recording this mark does not exist.']));
+                return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+            }
+
+            // Fetch mark details to check authorization and max_mark, and get student/course info for notification
             $stmtMark = $this->pdo->prepare("
                 SELECT
                     sm.enrollment_id,
                     sm.component_id,
+                    sm.mark_obtained AS old_mark_obtained, -- Get old mark for notification
                     e.student_id,
+                    u.full_name AS student_name,
                     ac.course_id,
                     c.lecturer_id,
-                    ac.max_mark
+                    ac.max_mark,
+                    ac.component_name,
+                    c.course_name,
+                    c.course_code
                 FROM student_marks sm
                 JOIN enrollments e ON sm.enrollment_id = e.enrollment_id
+                JOIN users u ON e.student_id = u.user_id
                 JOIN assessment_components ac ON sm.component_id = ac.component_id
                 JOIN courses c ON e.course_id = c.course_id
                 WHERE sm.mark_id = ?
@@ -353,34 +398,47 @@ class StudentMarkController
             $existingMark = $stmtMark->fetch(PDO::FETCH_ASSOC);
 
             if (!$existingMark) {
+                $this->pdo->rollBack(); // Rollback on validation failure
                 $response->getBody()->write(json_encode(['error' => 'Student mark not found.']));
                 return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
             }
 
             // Authorization check
             if ($userRole === 'lecturer' && (string)$existingMark['lecturer_id'] !== (string)$recordedBy) {
+                $this->pdo->rollBack(); // Rollback on authorization failure
                 $response->getBody()->write(json_encode(['error' => 'Access denied: You can only update marks for your assigned courses.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             } elseif ($userRole !== 'admin' && $userRole !== 'lecturer') {
+                $this->pdo->rollBack(); // Rollback on authorization failure
                 $response->getBody()->write(json_encode(['error' => 'Access denied: Only admins and lecturers can update student marks.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             }
 
             $setClauses = [];
             $params = [];
+            $notifyStudent = false;
+            $notificationMessage = "";
 
             if (isset($data['mark_obtained'])) {
                 if (!is_numeric($data['mark_obtained']) || $data['mark_obtained'] < 0) {
+                    $this->pdo->rollBack(); // Rollback on validation failure
                     $response->getBody()->write(json_encode(['error' => 'Mark obtained must be a non-negative number.']));
                     return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
                 }
                 // Validate against max_mark
                 if ($data['mark_obtained'] > $existingMark['max_mark']) {
+                    $this->pdo->rollBack(); // Rollback on validation failure
                     $response->getBody()->write(json_encode(['error' => "Mark obtained ({$data['mark_obtained']}) exceeds the maximum mark allowed ({$existingMark['max_mark']}) for this component."]));
                     return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
                 }
                 $setClauses[] = 'mark_obtained = ?';
                 $params[] = $data['mark_obtained'];
+
+                // Prepare notification message if mark changed
+                if ((float)$data['mark_obtained'] !== (float)$existingMark['old_mark_obtained']) {
+                    $notifyStudent = true;
+                    $notificationMessage = "Your mark for '{$existingMark['component_name']}' in '{$existingMark['course_name']}' has been updated from {$existingMark['old_mark_obtained']} to {$data['mark_obtained']}.";
+                }
             }
 
             // Allow changing enrollment_id or component_id (though rare for existing marks)
@@ -389,6 +447,7 @@ class StudentMarkController
                 $stmtEnrollment = $this->pdo->prepare("SELECT enrollment_id FROM enrollments WHERE enrollment_id = ?");
                 $stmtEnrollment->execute([$data['enrollment_id']]);
                 if (!$stmtEnrollment->fetch()) {
+                    $this->pdo->rollBack(); // Rollback on validation failure
                     $response->getBody()->write(json_encode(['error' => 'Invalid new enrollment ID.']));
                     return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
                 }
@@ -400,6 +459,7 @@ class StudentMarkController
                 $stmtComponent = $this->pdo->prepare("SELECT component_id FROM assessment_components WHERE component_id = ?");
                 $stmtComponent->execute([$data['component_id']]);
                 if (!$stmtComponent->fetch()) {
+                    $this->pdo->rollBack(); // Rollback on validation failure
                     $response->getBody()->write(json_encode(['error' => 'Invalid new component ID.']));
                     return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
                 }
@@ -408,25 +468,50 @@ class StudentMarkController
             }
 
             if (empty($setClauses)) {
-                $response->getBody()->write(json_encode(['error' => 'No valid fields provided for update.']));
-                return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+                $this->pdo->rollBack(); // Rollback if no changes were attempted
+                $response->getBody()->write(json_encode(['message' => 'No valid fields provided for update.']));
+                return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
             }
 
-            $params[] = $markId; // Add the mark ID for the WHERE clause
-
-            $query = "UPDATE student_marks SET " . implode(', ', $setClauses) . " WHERE mark_id = ?";
+            // Corrected parameter order: recorded_by first, then mark_id for WHERE clause
+            $query = "UPDATE student_marks SET " . implode(', ', $setClauses) . ", recorded_by = ? WHERE mark_id = ?"; 
+            $params[] = $recordedBy; // Add recordedBy to params for the SET clause
+            $params[] = $markId;     // Add the mark ID for the WHERE clause
 
             $stmt = $this->pdo->prepare($query);
             $stmt->execute($params);
 
             if ($stmt->rowCount() === 0) {
+                // Check if the record exists to avoid returning 404 unnecessarily
+                $checkStmt = $this->pdo->prepare("SELECT 1 FROM student_marks WHERE mark_id = ?");
+                $checkStmt->execute([$markId]);
+                if (!$checkStmt->fetch()) {
+                    $this->pdo->rollBack(); // Rollback if mark not found
+                    $response->getBody()->write(json_encode(['error' => 'Student mark not found.']));
+                    return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+                }
+                $this->pdo->commit(); // Commit even if no changes were made but record exists
                 $response->getBody()->write(json_encode(['message' => 'Student mark updated successfully (or no changes made).']));
-                return $response->withHeader('Content-Type', 'application/json');
+                return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
             }
+
+            // Send notification to student if applicable
+            if ($notifyStudent) {
+                $this->notificationController->createNotification(
+                    $existingMark['student_id'],
+                    "Mark Updated: {$existingMark['component_name']} in {$existingMark['course_code']}",
+                    $notificationMessage,
+                    "mark_update",
+                    $markId
+                );
+            }
+
+            $this->pdo->commit(); // Commit transaction
 
             $response->getBody()->write(json_encode(['message' => 'Student mark updated successfully']));
             return $response->withHeader('Content-Type', 'application/json');
         } catch (PDOException $e) {
+            $this->pdo->rollBack(); // Rollback transaction on error
             if ($e->getCode() == '23000') {
                 $errorMessage = 'A mark for this enrollment and component already exists.';
             } else {
@@ -460,27 +545,35 @@ class StudentMarkController
         }
 
         try {
-            // Fetch mark details to check authorization
+            $this->pdo->beginTransaction(); // Start transaction
+
+            // Fetch mark details to check authorization and get student/course info for notification
             $stmtMark = $this->pdo->prepare("
-                SELECT sm.mark_id, c.lecturer_id
+                SELECT sm.mark_id, e.student_id, u.full_name AS student_name, c.lecturer_id,
+                       ac.component_name, c.course_name, c.course_code
                 FROM student_marks sm
                 JOIN enrollments e ON sm.enrollment_id = e.enrollment_id
+                JOIN users u ON e.student_id = u.user_id
                 JOIN courses c ON e.course_id = c.course_id
+                JOIN assessment_components ac ON sm.component_id = ac.component_id
                 WHERE sm.mark_id = ?
             ");
             $stmtMark->execute([$markId]);
             $existingMark = $stmtMark->fetch(PDO::FETCH_ASSOC);
 
             if (!$existingMark) {
+                $this->pdo->rollBack(); // Rollback if mark not found
                 $response->getBody()->write(json_encode(['error' => 'Student mark not found.']));
                 return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
             }
 
             // Authorization check
             if ($userRole === 'lecturer' && (string)$existingMark['lecturer_id'] !== (string)$userId) {
+                $this->pdo->rollBack(); // Rollback on authorization failure
                 $response->getBody()->write(json_encode(['error' => 'Access denied: You can only delete marks for your assigned courses.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             } elseif ($userRole !== 'admin' && $userRole !== 'lecturer') {
+                $this->pdo->rollBack(); // Rollback on authorization failure
                 $response->getBody()->write(json_encode(['error' => 'Access denied: Only admins and lecturers can delete student marks.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             }
@@ -489,13 +582,26 @@ class StudentMarkController
             $stmt->execute([$markId]);
 
             if ($stmt->rowCount() === 0) {
+                $this->pdo->rollBack(); // Rollback if no row was deleted
                 $response->getBody()->write(json_encode(['error' => 'Student mark not found.']));
                 return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
             }
 
+            // Notify the student that their mark was deleted
+            $this->notificationController->createNotification(
+                $existingMark['student_id'],
+                "Mark Deleted: {$existingMark['component_name']} in {$existingMark['course_code']}",
+                "Your mark for '{$existingMark['component_name']}' in '{$existingMark['course_name']}' has been deleted by {$jwt->user}.",
+                "mark_deleted",
+                $markId
+            );
+
+            $this->pdo->commit(); // Commit transaction
+
             $response->getBody()->write(json_encode(['message' => 'Student mark deleted successfully']));
             return $response->withHeader('Content-Type', 'application/json');
         } catch (PDOException $e) {
+            $this->pdo->rollBack(); // Rollback transaction on error
             error_log("Error deleting student mark ID {$markId}: " . $e->getMessage());
             $response->getBody()->write(json_encode(['error' => 'Database error: Could not delete student mark.']));
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
@@ -718,6 +824,7 @@ class StudentMarkController
         $jwt = $request->getAttribute('jwt');
         $recordedBy = $jwt->user_id;
         $userRole = $jwt->role;
+        $recorderName = $jwt->user; // Get the name of the user performing the update
 
         $data = json_decode($request->getBody()->getContents(), true);
 
@@ -730,14 +837,25 @@ class StudentMarkController
         $successCount = 0;
         $failCount = 0;
         $failedMarks = [];
+        $notificationsToSend = []; // Array to store notifications to send after commit
 
         try {
             // Prepared statements for efficiency inside the loop
-            $stmtCheckComponent = $this->pdo->prepare("SELECT course_id, max_mark FROM assessment_components WHERE component_id = ?");
+            $stmtCheckComponent = $this->pdo->prepare("SELECT course_id, max_mark, component_name FROM assessment_components WHERE component_id = ?");
             $stmtCheckEnrollment = $this->pdo->prepare("SELECT student_id, course_id FROM enrollments WHERE enrollment_id = ?");
-            $stmtCheckMark = $this->pdo->prepare("SELECT mark_id FROM student_marks WHERE enrollment_id = ? AND component_id = ?");
+            $stmtCheckMark = $this->pdo->prepare("SELECT mark_id, mark_obtained FROM student_marks WHERE enrollment_id = ? AND component_id = ?");
             $stmtInsertMark = $this->pdo->prepare("INSERT INTO student_marks (enrollment_id, component_id, mark_obtained, recorded_by) VALUES (?, ?, ?, ?)");
             $stmtUpdateMark = $this->pdo->prepare("UPDATE student_marks SET mark_obtained = ?, recorded_by = ? WHERE mark_id = ?");
+            
+            // For fetching student and course names for notifications
+            $stmtGetStudentCourseInfo = $this->pdo->prepare("
+                SELECT u.user_id AS student_id, u.full_name AS student_name, c.course_name, c.course_code
+                FROM enrollments e
+                JOIN users u ON e.student_id = u.user_id
+                JOIN courses c ON e.course_id = c.course_id
+                WHERE e.enrollment_id = ?
+            ");
+
 
             foreach ($data as $markData) {
                 $markObtained = $markData['mark_obtained'] ?? null;
@@ -783,21 +901,63 @@ class StudentMarkController
                     continue;
                 }
 
+                // Get student and course info for notification
+                $stmtGetStudentCourseInfo->execute([$enrollmentId]);
+                $studentCourseInfo = $stmtGetStudentCourseInfo->fetch(PDO::FETCH_ASSOC);
+                
+                $studentId = $studentCourseInfo['student_id'];
+                $studentName = $studentCourseInfo['full_name']; // Corrected to full_name
+                $courseName = $studentCourseInfo['course_name'];
+                $courseCode = $studentCourseInfo['course_code'];
+                $componentName = $componentDetails['component_name'];
+                $maxMark = $componentDetails['max_mark'];
+
                 // Check if a mark for this student/component already exists
                 $stmtCheckMark->execute([$enrollmentId, $assessmentId]);
-                $existingMarkId = $stmtCheckMark->fetchColumn();
+                $existingMarkRow = $stmtCheckMark->fetch(PDO::FETCH_ASSOC);
+                $existingMarkId = $existingMarkRow['mark_id'] ?? null;
+                $oldMarkObtained = $existingMarkRow['mark_obtained'] ?? null;
 
                 if ($existingMarkId) {
                     // Mark exists, so update it
                     $stmtUpdateMark->execute([$markObtained, $recordedBy, $existingMarkId]);
+                    if ((float)$markObtained !== (float)$oldMarkObtained) {
+                        $notificationsToSend[] = [
+                            'userId' => $studentId,
+                            'title' => "Mark Updated: {$componentName} in {$courseCode}",
+                            'message' => "Your mark for '{$componentName}' in '{$courseName}' has been updated from {$oldMarkObtained} to {$markObtained} by {$recorderName}.",
+                            'type' => "mark_update",
+                            'relatedId' => $existingMarkId
+                        ];
+                    }
                 } else {
                     // Mark does not exist, so insert it
                     $stmtInsertMark->execute([$enrollmentId, $assessmentId, $markObtained, $recordedBy]);
+                    $newMarkId = $this->pdo->lastInsertId();
+                    $notificationsToSend[] = [
+                        'userId' => $studentId,
+                        'title' => "New Mark Recorded: {$componentName} in {$courseCode}",
+                        'message' => "A new mark of {$markObtained}/{$maxMark} has been recorded for your '{$componentName}' component in '{$courseName}' by {$recorderName}.",
+                        'type' => "new_mark",
+                        'relatedId' => $newMarkId
+                    ];
                 }
                 $successCount++;
             }
 
             $this->pdo->commit();
+
+            // Send all collected notifications after successful commit
+            foreach ($notificationsToSend as $notification) {
+                $this->notificationController->createNotification(
+                    $notification['userId'],
+                    $notification['title'],
+                    $notification['message'],
+                    $notification['type'],
+                    $notification['relatedId']
+                );
+            }
+
             $response->getBody()->write(json_encode([
                 'message' => "Batch update completed. {$successCount} marks processed successfully. {$failCount} marks failed.",
                 'failed_marks' => $failedMarks

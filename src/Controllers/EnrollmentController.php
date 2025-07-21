@@ -10,10 +10,12 @@ use PDOException;
 class EnrollmentController
 {
     private PDO $pdo;
+    private NotificationController $notificationController; // Declare NotificationController
 
-    public function __construct(PDO $pdo)
+    public function __construct(PDO $pdo, NotificationController $notificationController) // Inject NotificationController
     {
         $this->pdo = $pdo;
+        $this->notificationController = $notificationController; // Assign it to a property
     }
 
     /**
@@ -152,6 +154,7 @@ class EnrollmentController
     public function addEnrollment(Request $request, Response $response): Response
     {
         $jwt = $request->getAttribute('jwt');
+        $adminName = $jwt->user ?? 'Admin'; // Get admin's name for notification
 
         if (!isset($jwt->role) || $jwt->role !== 'admin') {
             $response->getBody()->write(json_encode(['error' => 'Access denied: admin only']));
@@ -168,26 +171,42 @@ class EnrollmentController
 
         // Validate student_id and course_id exist and are valid types
         try {
-            $stmtStudent = $this->pdo->prepare("SELECT user_id, role FROM users WHERE user_id = ? AND role = 'student'");
+            $this->pdo->beginTransaction(); // Start transaction
+
+            $stmtStudent = $this->pdo->prepare("SELECT user_id, full_name AS student_name, role FROM users WHERE user_id = ? AND role = 'student'");
             $stmtStudent->execute([$data['student_id']]);
-            if (!$stmtStudent->fetch()) {
+            $studentInfo = $stmtStudent->fetch(PDO::FETCH_ASSOC);
+            if (!$studentInfo) {
+                $this->pdo->rollBack(); // Rollback on validation failure
                 $response->getBody()->write(json_encode(['error' => 'Invalid student ID or user is not a student.']));
                 return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
             }
 
-            $stmtCourse = $this->pdo->prepare("SELECT course_id FROM courses WHERE course_id = ?");
+            $stmtCourse = $this->pdo->prepare("SELECT course_id, course_name, course_code FROM courses WHERE course_id = ?");
             $stmtCourse->execute([$data['course_id']]);
-            if (!$stmtCourse->fetch()) {
+            $courseInfo = $stmtCourse->fetch(PDO::FETCH_ASSOC);
+            if (!$courseInfo) {
+                $this->pdo->rollBack(); // Rollback on validation failure
                 $response->getBody()->write(json_encode(['error' => 'Invalid course ID.']));
                 return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
             }
         } catch (PDOException $e) {
+            $this->pdo->rollBack(); // Rollback on database error during validation
             error_log("Error validating student/course ID for enrollment: " . $e->getMessage());
             $response->getBody()->write(json_encode(['error' => 'Database error during ID validation.']));
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
         }
 
         try {
+            // Check if student is already enrolled to prevent duplicates
+            $stmtCheck = $this->pdo->prepare("SELECT COUNT(*) FROM enrollments WHERE student_id = ? AND course_id = ?");
+            $stmtCheck->execute([$data['student_id'], $data['course_id']]);
+            if ($stmtCheck->fetchColumn() > 0) {
+                $this->pdo->rollBack(); // Rollback on duplicate
+                $response->getBody()->write(json_encode(['error' => 'This student is already enrolled in this course.']));
+                return $response->withStatus(409)->withHeader('Content-Type', 'application/json');
+            }
+
             $stmt = $this->pdo->prepare("INSERT INTO enrollments (student_id, course_id, enrollment_date) VALUES (?, ?, ?)");
             $stmt->execute([
                 $data['student_id'],
@@ -195,9 +214,23 @@ class EnrollmentController
                 $data['enrollment_date']
             ]);
 
-            $response->getBody()->write(json_encode(['message' => 'Enrollment added successfully', 'enrollment_id' => $this->pdo->lastInsertId()]));
+            $enrollmentId = $this->pdo->lastInsertId();
+
+            // Notify the student about the new enrollment
+            $this->notificationController->createNotification(
+                $studentInfo['user_id'],
+                "New Course Enrollment: {$courseInfo['course_code']}",
+                "You have been enrolled in '{$courseInfo['course_name']}' by {$adminName}.",
+                "new_enrollment",
+                $enrollmentId
+            );
+
+            $this->pdo->commit(); // Commit transaction
+
+            $response->getBody()->write(json_encode(['message' => 'Enrollment added successfully', 'enrollment_id' => $enrollmentId]));
             return $response->withStatus(201)->withHeader('Content-Type', 'application/json');
         } catch (PDOException $e) {
+            $this->pdo->rollBack(); // Rollback transaction on error
             if ($e->getCode() == '23000') { // SQLSTATE for Integrity Constraint Violation (e.g., unique student_id, course_id)
                 $errorMessage = 'This student is already enrolled in this course.';
             } else {
@@ -222,6 +255,7 @@ class EnrollmentController
     {
         $enrollmentId = $args['id'];
         $jwt = $request->getAttribute('jwt');
+        $adminName = $jwt->user ?? 'Admin';
 
         if (!isset($jwt->role) || $jwt->role !== 'admin') {
             $response->getBody()->write(json_encode(['error' => 'Access denied: admin only']));
@@ -242,54 +276,150 @@ class EnrollmentController
 
         $setClauses = [];
         $params = [];
-
-        // Validate and add fields to update
-        if (isset($data['student_id'])) {
-            $stmtStudent = $this->pdo->prepare("SELECT user_id, role FROM users WHERE user_id = ? AND role = 'student'");
-            $stmtStudent->execute([$data['student_id']]);
-            if (!$stmtStudent->fetch()) {
-                $response->getBody()->write(json_encode(['error' => 'Invalid student ID or user is not a student.']));
-                return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
-            }
-            $setClauses[] = 'student_id = ?';
-            $params[] = $data['student_id'];
-        }
-        if (isset($data['course_id'])) {
-            $stmtCourse = $this->pdo->prepare("SELECT course_id FROM courses WHERE course_id = ?");
-            $stmtCourse->execute([$data['course_id']]);
-            if (!$stmtCourse->fetch()) {
-                $response->getBody()->write(json_encode(['error' => 'Invalid course ID.']));
-                return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
-            }
-            $setClauses[] = 'course_id = ?';
-            $params[] = $data['course_id'];
-        }
-        if (isset($data['enrollment_date'])) {
-            $setClauses[] = 'enrollment_date = ?';
-            $params[] = $data['enrollment_date'];
-        }
-
-        if (empty($setClauses)) {
-            $response->getBody()->write(json_encode(['error' => 'No valid fields provided for update.']));
-            return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
-        }
-
-        $params[] = $enrollmentId; // Add the enrollment ID for the WHERE clause
-
-        $query = "UPDATE enrollments SET " . implode(', ', $setClauses) . " WHERE enrollment_id = ?";
+        $notifyStudent = false;
+        $oldEnrollmentInfo = null;
+        $newCourseInfo = null;
+        $newStudentInfo = null;
 
         try {
+            $this->pdo->beginTransaction(); // Start transaction
+
+            // Fetch existing enrollment details for notification and validation
+            $stmtOldEnrollment = $this->pdo->prepare("
+                SELECT e.student_id, e.course_id, u.full_name AS student_name, c.course_name, c.course_code
+                FROM enrollments e
+                JOIN users u ON e.student_id = u.user_id
+                JOIN courses c ON e.course_id = c.course_id
+                WHERE e.enrollment_id = ?
+            ");
+            $stmtOldEnrollment->execute([$enrollmentId]);
+            $oldEnrollmentInfo = $stmtOldEnrollment->fetch(PDO::FETCH_ASSOC);
+
+            if (!$oldEnrollmentInfo) {
+                $this->pdo->rollBack();
+                $response->getBody()->write(json_encode(['error' => 'Enrollment not found.']));
+                return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+            }
+
+            // Validate and add fields to update
+            if (isset($data['student_id'])) {
+                $stmtStudent = $this->pdo->prepare("SELECT user_id, full_name AS student_name, role FROM users WHERE user_id = ? AND role = 'student'");
+                $stmtStudent->execute([$data['student_id']]);
+                $newStudentInfo = $stmtStudent->fetch(PDO::FETCH_ASSOC);
+                if (!$newStudentInfo) {
+                    $this->pdo->rollBack();
+                    $response->getBody()->write(json_encode(['error' => 'Invalid student ID or user is not a student.']));
+                    return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+                }
+                $setClauses[] = 'student_id = ?';
+                $params[] = $data['student_id'];
+                if ((string)$data['student_id'] !== (string)$oldEnrollmentInfo['student_id']) {
+                    $notifyStudent = true; // Notify if student changes
+                }
+            } else {
+                $newStudentInfo = ['user_id' => $oldEnrollmentInfo['student_id'], 'student_name' => $oldEnrollmentInfo['student_name']];
+            }
+
+            if (isset($data['course_id'])) {
+                $stmtCourse = $this->pdo->prepare("SELECT course_id, course_name, course_code FROM courses WHERE course_id = ?");
+                $stmtCourse->execute([$data['course_id']]);
+                $newCourseInfo = $stmtCourse->fetch(PDO::FETCH_ASSOC);
+                if (!$newCourseInfo) {
+                    $this->pdo->rollBack();
+                    $response->getBody()->write(json_encode(['error' => 'Invalid course ID.']));
+                    return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+                }
+                $setClauses[] = 'course_id = ?';
+                $params[] = $data['course_id'];
+                if ((string)$data['course_id'] !== (string)$oldEnrollmentInfo['course_id']) {
+                    $notifyStudent = true; // Notify if course changes
+                }
+            } else {
+                $newCourseInfo = ['course_id' => $oldEnrollmentInfo['course_id'], 'course_name' => $oldEnrollmentInfo['course_name'], 'course_code' => $oldEnrollmentInfo['course_code']];
+            }
+
+            if (isset($data['enrollment_date'])) {
+                $setClauses[] = 'enrollment_date = ?';
+                $params[] = $data['enrollment_date'];
+            }
+
+            if (empty($setClauses)) {
+                $this->pdo->rollBack();
+                $response->getBody()->write(json_encode(['message' => 'No valid fields provided for update.']));
+                return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
+            }
+
+            $params[] = $enrollmentId; // Add the enrollment ID for the WHERE clause
+
+            $query = "UPDATE enrollments SET " . implode(', ', $setClauses) . " WHERE enrollment_id = ?";
+
             $stmt = $this->pdo->prepare($query);
             $stmt->execute($params);
 
             if ($stmt->rowCount() === 0) {
-                $response->getBody()->write(json_encode(['error' => 'Enrollment not found or no changes made.']));
-                return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+                // Check if the record exists to avoid returning 404 unnecessarily
+                $checkStmt = $this->pdo->prepare("SELECT 1 FROM enrollments WHERE enrollment_id = ?");
+                $checkStmt->execute([$enrollmentId]);
+                if (!$checkStmt->fetch()) {
+                    $this->pdo->rollBack();
+                    $response->getBody()->write(json_encode(['error' => 'Enrollment not found.']));
+                    return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+                }
+                $this->pdo->commit(); // Commit even if no changes were made but record exists
+                $response->getBody()->write(json_encode(['message' => 'Enrollment updated successfully (or no changes made).']));
+                return $response->withStatus(200)->withHeader('Content-Type', 'application/json');
             }
+
+            // Send notification if student or course changed
+            if ($notifyStudent) {
+                $notificationTitle = "Enrollment Updated";
+                $notificationMessage = "Your enrollment details have been updated by {$adminName}.";
+
+                // More specific message if student changed courses
+                if ((string)$data['student_id'] !== (string)$oldEnrollmentInfo['student_id']) {
+                    // Notify old student about removal
+                    $this->notificationController->createNotification(
+                        $oldEnrollmentInfo['student_id'],
+                        "Enrollment Removed",
+                        "Your enrollment from '{$oldEnrollmentInfo['course_name']}' has been removed by {$adminName}.",
+                        "enrollment_removed",
+                        $enrollmentId
+                    );
+                    // Notify new student about addition
+                    $this->notificationController->createNotification(
+                        $newStudentInfo['user_id'],
+                        "New Course Enrollment: {$newCourseInfo['course_code']}",
+                        "You have been enrolled in '{$newCourseInfo['course_name']}' by {$adminName}.",
+                        "new_enrollment",
+                        $enrollmentId
+                    );
+                } elseif ((string)$data['course_id'] !== (string)$oldEnrollmentInfo['course_id']) {
+                    // Notify student about course change
+                    $this->notificationController->createNotification(
+                        $newStudentInfo['user_id'],
+                        "Course Enrollment Changed",
+                        "Your enrollment has been changed from '{$oldEnrollmentInfo['course_name']}' to '{$newCourseInfo['course_name']}' by {$adminName}.",
+                        "enrollment_changed",
+                        $enrollmentId
+                    );
+                } else {
+                    // Generic update notification
+                    $this->notificationController->createNotification(
+                        $newStudentInfo['user_id'],
+                        $notificationTitle,
+                        $notificationMessage,
+                        "enrollment_update",
+                        $enrollmentId
+                    );
+                }
+            }
+
+            $this->pdo->commit(); // Commit transaction
 
             $response->getBody()->write(json_encode(['message' => 'Enrollment updated successfully']));
             return $response->withHeader('Content-Type', 'application/json');
         } catch (PDOException $e) {
+            $this->pdo->rollBack(); // Rollback transaction on error
             if ($e->getCode() == '23000') {
                 $errorMessage = 'This student is already enrolled in this course.';
             } else {
@@ -314,6 +444,7 @@ class EnrollmentController
     {
         $enrollmentId = $args['id'];
         $jwt = $request->getAttribute('jwt');
+        $adminName = $jwt->user ?? 'Admin';
 
         if (!isset($jwt->role) || $jwt->role !== 'admin') {
             $response->getBody()->write(json_encode(['error' => 'Access denied: admin only']));
@@ -326,17 +457,49 @@ class EnrollmentController
         }
 
         try {
-            $stmt = $this->pdo->prepare("DELETE FROM enrollments WHERE enrollment_id = ?");
-            $stmt->execute([$enrollmentId]);
+            $this->pdo->beginTransaction(); // Start transaction
 
-            if ($stmt->rowCount() === 0) {
+            // Fetch enrollment details for notification
+            $stmtEnrollment = $this->pdo->prepare("
+                SELECT e.student_id, u.full_name AS student_name, c.course_name, c.course_code
+                FROM enrollments e
+                JOIN users u ON e.student_id = u.user_id
+                JOIN courses c ON e.course_id = c.course_id
+                WHERE e.enrollment_id = ?
+            ");
+            $stmtEnrollment->execute([$enrollmentId]);
+            $existingEnrollment = $stmtEnrollment->fetch(PDO::FETCH_ASSOC);
+
+            if (!$existingEnrollment) {
+                $this->pdo->rollBack(); // Rollback if not found
                 $response->getBody()->write(json_encode(['error' => 'Enrollment not found.']));
                 return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
             }
 
+            $stmt = $this->pdo->prepare("DELETE FROM enrollments WHERE enrollment_id = ?");
+            $stmt->execute([$enrollmentId]);
+
+            if ($stmt->rowCount() === 0) {
+                $this->pdo->rollBack(); // Rollback if no row was deleted
+                $response->getBody()->write(json_encode(['error' => 'Enrollment not found.']));
+                return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
+            }
+
+            // Notify the student about the enrollment deletion
+            $this->notificationController->createNotification(
+                $existingEnrollment['student_id'],
+                "Enrollment Deleted: {$existingEnrollment['course_code']}",
+                "Your enrollment in '{$existingEnrollment['course_name']}' has been deleted by {$adminName}.",
+                "enrollment_deleted",
+                $enrollmentId
+            );
+
+            $this->pdo->commit(); // Commit transaction
+
             $response->getBody()->write(json_encode(['message' => 'Enrollment deleted successfully']));
             return $response->withHeader('Content-Type', 'application/json');
         } catch (PDOException $e) {
+            $this->pdo->rollBack(); // Rollback transaction on error
             error_log("Error deleting enrollment ID {$enrollmentId}: " . $e->getMessage());
             $response->getBody()->write(json_encode(['error' => 'Database error: Could not delete enrollment.']));
             return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
@@ -407,6 +570,7 @@ class EnrollmentController
         $jwt = $request->getAttribute('jwt');
         $requesterRole = $jwt->role ?? null;
         $lecturerId = $jwt->user_id ?? null;
+        $lecturerName = $jwt->user ?? 'Lecturer'; // Get lecturer's name for notification
 
         if ($requesterRole !== 'lecturer' || !$lecturerId) {
             $response->getBody()->write(json_encode(['error' => 'Access denied: Lecturer role required.']));
@@ -414,9 +578,10 @@ class EnrollmentController
         }
 
         // Verify that the lecturer actually teaches this course
-        $stmtCourse = $this->pdo->prepare("SELECT COUNT(*) FROM courses WHERE course_id = ? AND lecturer_id = ?");
+        $stmtCourse = $this->pdo->prepare("SELECT course_name, course_code FROM courses WHERE course_id = ? AND lecturer_id = ?");
         $stmtCourse->execute([$courseId, $lecturerId]);
-        if ($stmtCourse->fetchColumn() == 0) {
+        $courseInfo = $stmtCourse->fetch(PDO::FETCH_ASSOC);
+        if (!$courseInfo) {
             $response->getBody()->write(json_encode(['error' => 'Access denied: You do not teach this course.']));
             return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
         }
@@ -431,8 +596,10 @@ class EnrollmentController
         $addedCount = 0;
         $failedCount = 0;
         $messages = [];
+        $notificationsToSend = []; // Array to store notifications
 
         foreach ($data['student_ids'] as $studentId) {
+            $this->pdo->beginTransaction(); // Start transaction for each student
             try {
                 // Check if student is already enrolled to prevent duplicates
                 $stmtCheck = $this->pdo->prepare("SELECT COUNT(*) FROM enrollments WHERE student_id = ? AND course_id = ?");
@@ -440,20 +607,58 @@ class EnrollmentController
                 if ($stmtCheck->fetchColumn() > 0) {
                     $messages[] = "Student ID {$studentId} is already enrolled in course {$courseId}.";
                     $failedCount++;
+                    $this->pdo->rollBack(); // Rollback current transaction
+                    continue;
+                }
+
+                // Get student's full name for notification
+                $stmtStudentName = $this->pdo->prepare("SELECT full_name FROM users WHERE user_id = ? AND role = 'student'");
+                $stmtStudentName->execute([$studentId]);
+                $studentName = $stmtStudentName->fetchColumn();
+
+                if (!$studentName) {
+                    $messages[] = "Student ID {$studentId} not found or is not a student.";
+                    $failedCount++;
+                    $this->pdo->rollBack(); // Rollback current transaction
                     continue;
                 }
 
                 $stmt = $this->pdo->prepare("INSERT INTO enrollments (student_id, course_id, enrollment_date) VALUES (?, ?, CURDATE())");
                 $stmt->execute([$studentId, $courseId]);
+                $enrollmentId = $this->pdo->lastInsertId(); // Get the new enrollment ID
+
                 $addedCount++;
                 $messages[] = "Student ID {$studentId} successfully enrolled.";
 
+                // Add notification to the queue
+                $notificationsToSend[] = [
+                    'userId' => $studentId,
+                    'title' => "New Course Enrollment: {$courseInfo['course_code']}",
+                    'message' => "You have been enrolled in '{$courseInfo['course_name']}' by {$lecturerName}.",
+                    'type' => "new_enrollment",
+                    'relatedId' => $enrollmentId
+                ];
+                
+                $this->pdo->commit(); // Commit current transaction
+
             } catch (PDOException $e) {
+                $this->pdo->rollBack(); // Rollback current transaction on error
                 // Log the specific error for this student
                 error_log("Error enrolling student {$studentId} in course {$courseId}: " . $e->getMessage());
                 $messages[] = "Failed to enroll student ID {$studentId}: " . $e->getMessage();
                 $failedCount++;
             }
+        }
+
+        // Send all collected notifications after the loop
+        foreach ($notificationsToSend as $notification) {
+            $this->notificationController->createNotification(
+                $notification['userId'],
+                $notification['title'],
+                $notification['message'],
+                $notification['type'],
+                $notification['relatedId']
+            );
         }
 
         $response->getBody()->write(json_encode([

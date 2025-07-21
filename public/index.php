@@ -74,10 +74,10 @@ $notificationController = new NotificationController($pdo);
 
 $userController = new UserController($pdo);
 $courseController = new CourseController($pdo,$notificationController);
-$enrollmentController = new EnrollmentController($pdo);
+$enrollmentController = new EnrollmentController($pdo,$notificationController);
 $assessmentComponentController = new AssessmentComponentController($pdo,$notificationController);
-$studentMarkController = new StudentMarkController($pdo);
-$remarkRequestController = new RemarkRequestController($pdo);
+$studentMarkController = new StudentMarkController($pdo,$notificationController);
+$remarkRequestController = new RemarkRequestController($pdo,$notificationController);
 $advisorStudentController = new AdvisorStudentController($pdo,$notificationController);
 $advisorNoteController = new AdvisorNoteController($pdo,$notificationController);
 
