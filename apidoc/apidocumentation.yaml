@@ -1,0 +1,3136 @@
+openapi: 3.0.0
+info:
+  title: Student Management System API
+  version: 1.0.0
+  description: API documentation for the Student Management System, covering user, course, enrollment, assessment, student mark, remark request, advisor-student, advisor notes, and notification management.
+
+servers:
+  - url: /
+    description: Local development server
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    User:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          readOnly: true
+          description: Unique identifier for the user.
+        username:
+          type: string
+          description: User's login username.
+        password_hash:
+          type: string
+          writeOnly: true
+          description: Hashed password for the user.
+        pin:
+          type: string
+          nullable: true
+          description: User's PIN, used for login.
+        role:
+          type: string
+          enum: [admin, lecturer, student, advisor]
+          description: Role of the user.
+        email:
+          type: string
+          format: email
+          nullable: true
+          description: User's email address.
+        full_name:
+          type: string
+          description: Full name of the user.
+        matric_number:
+          type: string
+          nullable: true
+          description: Matriculation number for students.
+        profile_picture:
+          type: string
+          nullable: true
+          description: URL or path to the user's profile picture.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the user record was created.
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the user record was last updated.
+      required:
+        - username
+        - password_hash
+        - role
+        - full_name
+
+    Course:
+      type: object
+      properties:
+        course_id:
+          type: integer
+          readOnly: true
+          description: Unique identifier for the course.
+        course_code:
+          type: string
+          description: Unique code for the course (e.g., CSC101).
+        course_name:
+          type: string
+          description: Name of the course.
+        lecturer_id:
+          type: integer
+          description: ID of the lecturer assigned to the course.
+        lecturer_name:
+          type: string
+          readOnly: true
+          description: Full name of the assigned lecturer.
+        credit_hours:
+          type: integer
+          nullable: true # Based on DB schema DEFAULT NULL
+          description: Number of credit hours for the course.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the course record was created.
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the course record was last updated.
+      required:
+        - course_code
+        - course_name
+        - lecturer_id
+
+    Enrollment:
+      type: object
+      properties:
+        enrollment_id:
+          type: integer
+          readOnly: true
+          description: Unique identifier for the enrollment.
+        student_id:
+          type: integer
+          description: ID of the enrolled student.
+        course_id:
+          type: integer
+          description: ID of the enrolled course.
+        enrollment_date:
+          type: string
+          format: date
+          description: Date of enrollment.
+        student_name:
+          type: string
+          readOnly: true
+          description: Full name of the enrolled student.
+        course_name:
+          type: string
+          readOnly: true
+          description: Name of the enrolled course.
+        course_code:
+          type: string
+          readOnly: true
+          description: Code of the enrolled course.
+        credit_hours:
+          type: integer
+          readOnly: true
+          description: Credit hours of the enrolled course.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the enrollment record was created.
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the enrollment record was last updated.
+      required:
+        - student_id
+        - course_id
+        - enrollment_date
+
+    AssessmentComponent:
+      type: object
+      properties:
+        component_id:
+          type: integer
+          readOnly: true
+          description: Unique identifier for the assessment component.
+        course_id:
+          type: integer
+          description: ID of the course this component belongs to.
+        component_name:
+          type: string
+          description: Name of the assessment component (e.g., Midterm, Final Exam).
+        max_mark:
+          type: number
+          format: float
+          description: Maximum possible mark for this component.
+        weight_percentage:
+          type: number
+          format: float
+          description: Weight of this component towards the final course mark (0-100).
+        is_final_exam:
+          type: boolean
+          default: false # Matches DB default
+          description: Indicates if this component is the final exam.
+        course_name:
+          type: string
+          readOnly: true
+          description: Name of the course.
+        course_code:
+          type: string
+          readOnly: true
+          description: Code of the course.
+        lecturer_id:
+          type: integer
+          readOnly: true
+          description: ID of the lecturer for the course.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the assessment component record was created.
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the assessment component record was last updated.
+      required:
+        - course_id
+        - component_name
+        - max_mark
+        - weight_percentage
+
+    StudentMark:
+      type: object
+      properties:
+        mark_id:
+          type: integer
+          readOnly: true
+          description: Unique identifier for the student mark.
+        enrollment_id:
+          type: integer
+          description: ID of the enrollment this mark belongs to.
+        component_id:
+          type: integer
+          description: ID of the assessment component this mark is for.
+        mark_obtained:
+          type: number
+          format: float
+          description: Mark obtained by the student for this component.
+        recorded_by:
+          type: integer
+          description: ID of the user (lecturer/admin) who recorded the mark.
+        recorded_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the mark was recorded.
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the mark was last updated.
+        student_id:
+          type: integer
+          readOnly: true
+          description: ID of the student.
+        student_name:
+          type: string
+          readOnly: true
+          description: Full name of the student.
+        course_name:
+          type: string
+          readOnly: true
+          description: Name of the course.
+        course_code:
+          type: string
+          readOnly: true
+          description: Code of the course.
+        component_name:
+          type: string
+          readOnly: true
+          description: Name of the assessment component.
+        max_mark:
+          type: number
+          format: float
+          readOnly: true
+          description: Maximum mark for the component.
+        weight_percentage:
+          type: number
+          format: float
+          readOnly: true
+          description: Weight percentage of the component.
+        recorded_by_name:
+          type: string
+          readOnly: true
+          description: Full name of the user who recorded the mark.
+      required:
+        - enrollment_id
+        - component_id
+        - mark_obtained
+        - recorded_by
+
+    RemarkRequest:
+      type: object
+      properties:
+        request_id:
+          type: integer
+          readOnly: true
+          description: Unique identifier for the remark request.
+        mark_id:
+          type: integer
+          description: ID of the student mark this request is for.
+        student_id:
+          type: integer
+          description: ID of the student who submitted the request.
+        justification:
+          type: string
+          description: Student's justification for the remark.
+        request_date:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the request was submitted.
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+          default: pending
+          description: Current status of the remark request.
+        lecturer_notes:
+          type: string
+          nullable: true
+          description: Notes from the lecturer regarding the request.
+        resolved_by:
+          type: integer
+          nullable: true
+          description: ID of the user (lecturer/admin) who resolved the request.
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when the request was resolved.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the request was created.
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the request was last updated.
+        student_name:
+          type: string
+          readOnly: true
+          description: Full name of the student.
+        matric_number:
+          type: string
+          readOnly: true
+          description: Matriculation number of the student.
+        mark_obtained:
+          type: number
+          format: float
+          readOnly: true
+          description: Mark obtained for the component.
+        component_name:
+          type: string
+          readOnly: true
+          description: Name of the assessment component.
+        max_mark:
+          type: number
+          format: float
+          readOnly: true
+          description: Maximum mark for the component.
+        course_name:
+          type: string
+          readOnly: true
+          description: Name of the course.
+        course_code:
+          type: string
+          readOnly: true
+          description: Code of the course.
+        course_lecturer_id:
+          type: integer
+          readOnly: true
+          description: ID of the lecturer for the course.
+        resolved_by_name:
+          type: string
+          readOnly: true
+          nullable: true
+          description: Full name of the user who resolved the request.
+      required:
+        - mark_id
+        - student_id
+        - justification
+
+    AdvisorStudent:
+      type: object
+      properties:
+        advisor_student_id:
+          type: integer
+          readOnly: true
+          description: Unique identifier for the advisor-student assignment.
+        advisor_id:
+          type: integer
+          description: ID of the advisor.
+        student_id:
+          type: integer
+          description: ID of the student.
+        assigned_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the assignment was created.
+        advisor_name:
+          type: string
+          readOnly: true
+          description: Full name of the advisor.
+        advisor_email:
+          type: string
+          readOnly: true
+          description: Email of the advisor.
+        student_name:
+          type: string
+          readOnly: true
+          description: Full name of the student.
+        matric_number:
+          type: string
+          readOnly: true
+          description: Matriculation number of the student.
+        student_email:
+          type: string
+          readOnly: true
+          description: Email of the student.
+        last_meeting_date:
+          type: string
+          format: date
+          nullable: true
+          readOnly: true
+          description: Date of the last meeting with the advisee.
+      required:
+        - advisor_id
+        - student_id
+
+    AdvisorNote:
+      type: object
+      properties:
+        note_id:
+          type: integer
+          readOnly: true
+          description: Unique identifier for the advisor note.
+        advisor_student_id:
+          type: integer
+          description: ID of the advisor-student assignment this note is for.
+        note_content:
+          type: string
+          description: Content of the advisor note.
+        meeting_date:
+          type: string
+          format: date
+          description: Date of the meeting.
+        recommendations:
+          type: array
+          items:
+            type: string
+          nullable: true # JSON column can be null
+          description: List of recommendations from the advisor.
+        follow_up_required:
+          type: boolean
+          default: false # Matches DB default
+          description: Indicates if a follow-up is required.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the note was created.
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the note was last updated.
+        advisor_id:
+          type: integer
+          readOnly: true
+          description: ID of the advisor who created the note.
+        student_id:
+          type: integer
+          readOnly: true
+          description: ID of the student the note is about.
+        advisor_name:
+          type: string
+          readOnly: true
+          description: Full name of the advisor.
+        student_name:
+          type: string
+          readOnly: true
+          description: Full name of the student.
+        matric_number:
+          type: string
+          readOnly: true
+          description: Matriculation number of the student.
+      required:
+        - advisor_student_id
+        - note_content
+        - meeting_date
+
+    Notification:
+      type: object
+      properties:
+        notification_id:
+          type: integer
+          readOnly: true
+          description: Unique identifier for the notification.
+        user_id:
+          type: integer
+          description: ID of the user who received the notification.
+        title:
+          type: string
+          description: Title of the notification.
+        message:
+          type: string
+          description: Full message content of the notification.
+        type:
+          type: string
+          nullable: true
+          description: Type of notification (e.g., new_mark, remark_request).
+        related_id:
+          type: integer
+          nullable: true
+          description: ID of the related record (e.g., mark_id, request_id).
+        is_read:
+          type: boolean
+          default: false # Matches DB default
+          description: Indicates if the notification has been read.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the notification was created.
+      required:
+        - user_id
+        - title
+        - message
+
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          description: User's username.
+        password:
+          type: string
+          description: User's password or PIN.
+      required:
+        - username
+        - password
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT authentication token.
+        user:
+          type: object
+          properties:
+            user_id:
+              type: integer
+            username:
+              type: string
+            role:
+              type: string
+            email:
+              type: string
+            full_name:
+              type: string
+            matric_number:
+              type: string
+            pin:
+              type: string
+            profile_picture:
+              type: string
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message.
+
+    Message:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Success message.
+        details:
+          type: array
+          items:
+            type: string
+          description: Additional details for the message (e.g., for batch operations).
+        failed_marks:
+          type: array
+          items:
+            type: object
+            properties:
+              data:
+                type: object
+              reason:
+                type: string
+          description: Details of marks that failed during batch update.
+        component_id:
+          type: integer
+          description: The ID of the newly added component.
+        course_id:
+          type: integer
+          description: The ID of the newly added course.
+        enrollment_id:
+          type: integer
+          description: The ID of the newly added enrollment.
+        mark_id:
+          type: integer
+          description: The ID of the newly added mark.
+        request_id:
+          type: integer
+          description: The ID of the newly added remark request.
+        advisor_student_id:
+          type: integer
+          description: The ID of the newly added advisor-student assignment.
+        note_id:
+          type: integer
+          description: The ID of the newly added advisor note.
+
+paths:
+  /login:
+    post:
+      summary: User Login
+      description: Authenticates a user and returns a JWT token and user information.
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Bad Request (e.g., missing username/password)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /users:
+    get:
+      summary: Get All Users
+      description: Retrieves a list of all users in the system. Accessible to admin users only.
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of users.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '403':
+          description: Access denied (admin only).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Add a New User
+      description: Creates a new user in the system. Accessible to admin users only.
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+      responses:
+        '201':
+          description: User added successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Bad Request (e.g., missing required fields, invalid role).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (admin only).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict (e.g., user with same username/email/matric number already exists).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /users/{id}:
+    get:
+      summary: Get User by ID
+      description: Retrieves a single user by their ID. Admin can view any user; other roles can only view themselves or their advisees (for advisors).
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the user to retrieve.
+      responses:
+        '200':
+          description: User data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid user ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not authorized to view this user).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: User not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: Update a User
+      description: Updates an existing user's information. Accessible to admin users only. Lecturers can only update students they manage.
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the user to update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+            examples:
+              updateEmail:
+                summary: Update Email Only
+                value:
+                  email: new.email@example.com
+              updatePassword:
+                summary: Update Password Only
+                value:
+                  password: newSecurePassword123
+              updateFullName:
+                summary: Update Full Name Only
+                value:
+                  full_name: Jane Doe
+      responses:
+        '200':
+          description: User updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Bad Request (e.g., invalid user ID, no data provided, invalid role).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (admin only or lecturer not managing student).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: User not found or no changes made.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict (e.g., user with same email/matric number already exists).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete a User
+      description: Deletes a user from the system. Accessible to admin users only.
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the user to delete.
+      responses:
+        '200':
+          description: User deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Invalid user ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (admin only).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: User not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /users/lecturer/{username}/students:
+    get:
+      summary: Get Students by Lecturer Username
+      description: Retrieves a list of students who are enrolled in courses taught by a specific lecturer. Accessible to the lecturer themselves.
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: username
+          schema:
+            type: string
+          required: true
+          description: Username of the lecturer.
+      responses:
+        '200':
+          description: A list of students.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  students:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        user_id:
+                          type: integer
+                        username:
+                          type: string
+                        full_name:
+                          type: string
+                        matric_number:
+                          type: string
+                        course_code:
+                          type: string
+        '403':
+          description: Access denied (lecturer role required or token mismatch).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Lecturer or students not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Failed to fetch students.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /courses:
+    get:
+      summary: Get All Courses
+      description: Retrieves a list of all courses. Accessible to all authenticated users.
+      tags:
+        - Courses
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of courses.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Course'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Add a New Course
+      description: Creates a new course. Accessible to admin and lecturers (lecturers can only assign themselves).
+      tags:
+        - Courses
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Course'
+            examples:
+              addCourseExample:
+                value:
+                  course_code: "CSC101"
+                  course_name: "Introduction to Programming"
+                  lecturer_id: 123
+                  credit_hours: 3
+      responses:
+        '201':
+          description: Course added successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Bad Request (e.g., missing required fields, invalid lecturer ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not admin or lecturer assigning to someone else).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict (e.g., course with same code already exists).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /courses/{id}:
+    get:
+      summary: Get Course by ID
+      description: Retrieves a single course by its ID. Accessible to all authenticated users.
+      tags:
+        - Courses
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the course to retrieve.
+      responses:
+        '200':
+          description: Course data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Course'
+        '400':
+          description: Invalid course ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Course not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: Update a Course
+      description: Updates an existing course's information. Accessible to admin and lecturers (lecturers can only update their own courses).
+      tags:
+        - Courses
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the course to update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Course'
+            examples:
+              updateCourseName:
+                summary: Update Course Name Only
+                value:
+                  course_name: "Advanced Programming Concepts"
+              changeLecturer:
+                summary: Change Lecturer (Admin Only)
+                value:
+                  lecturer_id: 456
+      responses:
+        '200':
+          description: Course updated successfully or no changes made.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Bad Request (e.g., invalid course ID, no data provided, invalid new lecturer ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not admin or lecturer not assigned to course).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Course not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict (e.g., course with same code already exists).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete a Course
+      description: Deletes a course from the system. Accessible to admin users only.
+      tags:
+        - Courses
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the course to delete.
+      responses:
+        '200':
+          description: Course deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Invalid course ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (admin only).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Course not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict (e.g., cannot delete course with associated data).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /courses/lecturer/{username}:
+    get:
+      summary: Get Lecturer's Courses
+      description: Retrieves a list of courses taught by a specific lecturer. Accessible to the lecturer themselves.
+      tags:
+        - Courses
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: username
+          schema:
+            type: string
+          required: true
+          description: Username of the lecturer.
+      responses:
+        '200':
+          description: A list of courses taught by the lecturer.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  courses:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Course'
+        '403':
+          description: Access denied (lecturer role required or token mismatch).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Lecturer or courses not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Failed to fetch lecturer courses.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /courses/{id}/add-students:
+    post:
+      summary: Add Students to a Course
+      description: Assigns one or more existing students to a specific course. Accessible by lecturer role (for courses they teach).
+      tags:
+        - Courses
+        - Enrollments
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the course to add students to.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                student_ids:
+                  type: array
+                  items:
+                    type: integer
+                  description: An array of student IDs to enroll in the course.
+              required:
+                - student_ids
+            examples:
+              addStudentsExample:
+                value:
+                  student_ids: [1, 2, 3]
+      responses:
+        '200':
+          description: Enrollment process completed with details of added/failed students.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Bad Request (e.g., missing student_ids array, invalid course ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (lecturer not assigned to course).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error during enrollment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /enrollments:
+    get:
+      summary: Get All Enrollments
+      description: Retrieves a list of all enrollments. Accessible to admin; students can only view their own; lecturers can view for their courses; advisors can view for their advisees.
+      tags:
+        - Enrollments
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of enrollments.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Enrollment'
+        '403':
+          description: Access denied for this role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Add a New Enrollment
+      description: Creates a new enrollment. Accessible to admin users only.
+      tags:
+        - Enrollments
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Enrollment'
+            examples:
+              addEnrollmentExample:
+                value:
+                  student_id: 1
+                  course_id: 101
+                  enrollment_date: "2023-09-01"
+      responses:
+        '201':
+          description: Enrollment added successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Bad Request (e.g., missing required fields, invalid student/course ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (admin only).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict (e.g., student already enrolled in course).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /enrollments/{id}:
+    get:
+      summary: Get Enrollment by ID
+      description: Retrieves a single enrollment by its ID. Accessible to admin; students can only view their own; lecturers can view for their courses; advisors can view for their advisees.
+      tags:
+        - Enrollments
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the enrollment to retrieve.
+      responses:
+        '200':
+          description: Enrollment data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Enrollment'
+        '400':
+          description: Invalid enrollment ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not authorized to view this enrollment).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Enrollment not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: Update an Enrollment
+      description: Updates an existing enrollment's information. Accessible to admin users only.
+      tags:
+        - Enrollments
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the enrollment to update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Enrollment'
+            examples:
+              updateEnrollmentDate:
+                summary: Update Enrollment Date
+                value:
+                  enrollment_date: "2023-09-15"
+              changeCourse:
+                summary: Change Course (Admin Only)
+                value:
+                  course_id: 102
+      responses:
+        '200':
+          description: Enrollment updated successfully or no changes made.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Bad Request (e.g., invalid enrollment ID, no data provided, invalid student/course ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (admin only).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Enrollment not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict (e.g., student already enrolled in the new course).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete an Enrollment
+      description: Deletes an enrollment from the system. Accessible to admin users only.
+      tags:
+        - Enrollments
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the enrollment to delete.
+      responses:
+        '200':
+          description: Enrollment deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Invalid enrollment ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (admin only).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Enrollment not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /enrollments/{id}/eligible-students:
+    get:
+      summary: Get Eligible Students for a Course
+      description: Fetches students who are not currently enrolled in a specific course. Accessible by lecturer role (for courses they teach).
+      tags:
+        - Enrollments
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the course to find eligible students for.
+      responses:
+        '200':
+          description: A list of eligible students.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  eligibleStudents:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        user_id:
+                          type: integer
+                        username:
+                          type: string
+                        full_name:
+                          type: string
+                        matric_number:
+                          type: string
+                        email:
+                          type: string
+                        profile_picture:
+                          type: string
+        '400':
+          description: Invalid course ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (lecturer role required or not teaching this course).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Failed to fetch eligible students.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /assessment-components:
+    get:
+      summary: Get All Assessment Components
+      description: Retrieves a list of all assessment components. Accessible to admin; lecturers for their courses; students for their enrolled courses; advisors for their advisees' courses.
+      tags:
+        - Assessment Components
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of assessment components.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessmentComponents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AssessmentComponent'
+        '403':
+          description: Access denied for this role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Failed to fetch assessment components.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Add a New Assessment Component
+      description: Creates a new assessment component. Accessible to lecturers (for their courses) and admin.
+      tags:
+        - Assessment Components
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssessmentComponent'
+            examples:
+              addComponentExample:
+                value:
+                  course_id: 101
+                  component_name: "Midterm Exam"
+                  max_mark: 100
+                  weight_percentage: 30
+                  is_final_exam: false
+      responses:
+        '201':
+          description: Assessment component added successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Bad Request (e.g., missing required fields, invalid course ID, invalid marks/weights).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not admin or lecturer not assigned to course).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /assessment-components/{id}:
+    get:
+      summary: Get Assessment Component by ID
+      description: Retrieves a single assessment component by its ID. Accessible to admin; lecturers for their courses; students for their enrolled courses; advisors for their advisees' courses.
+      tags:
+        - Assessment Components
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the assessment component to retrieve.
+      responses:
+        '200':
+          description: Assessment component data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssessmentComponent'
+        '400':
+          description: Invalid component ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not authorized to view this component).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Assessment component not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: Update an Assessment Component
+      description: Updates an existing assessment component's information. Accessible to lecturers (for their courses) and admin.
+      tags:
+        - Assessment Components
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the assessment component to update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssessmentComponent'
+            examples:
+              updateComponentName:
+                summary: Update Component Name
+                value:
+                  component_name: "Final Project"
+              updateWeight:
+                summary: Update Weight Percentage
+                value:
+                  weight_percentage: 40
+      responses:
+        '200':
+          description: Assessment component updated successfully or no changes made.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Bad Request (e.g., invalid component ID, no data provided, invalid marks/weights).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not admin or lecturer not assigned to course).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Assessment component not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete an Assessment Component
+      description: Deletes an assessment component. Accessible to lecturers (for their courses) and admin.
+      tags:
+        - Assessment Components
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the assessment component to delete.
+      responses:
+        '200':
+          description: Assessment component deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Invalid component ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not admin or lecturer not assigned to course).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Assessment component not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /assessment-components/course/{course_id}:
+    get:
+      summary: Get Assessment Components by Course ID
+      description: Retrieves all assessment components for a specific course. Accessible to lecturers of that course, admin, and advisors (if their advisees are in the course).
+      tags:
+        - Assessment Components
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: course_id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the course.
+      responses:
+        '200':
+          description: A list of assessment components for the specified course.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessmentComponents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AssessmentComponent'
+        '400':
+          description: Invalid course ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (insufficient privileges or not related to course).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Failed to fetch assessment components.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /all-student-marks:
+    get:
+      summary: Get All Student Marks for Peer Comparison
+      description: Retrieves all student marks, anonymizing other students' data for peer comparison if the requester is a student. Lecturers and admins can see full details.
+      tags:
+        - Student Marks
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of student marks, potentially anonymized.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StudentMark'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /student/course-summaries:
+    get:
+      summary: Get Student Course Summaries and GPA
+      description: Retrieves a student's course summaries, including total marks and calculated GPA for each course. Accessible to students (for their own summaries) and admins.
+      tags:
+        - Student Marks
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of course summaries for the student.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    course_id:
+                      type: integer
+                    course_code:
+                      type: string
+                    course_name:
+                      type: string
+                    credit_hours:
+                      type: integer
+                    total_mark:
+                      type: number
+                      format: float
+                      description: Sum of weighted marks for the course.
+                    total_weighted_percentage:
+                      type: number
+                      format: float
+                      description: Sum of weight percentages of components in the course.
+                    overall_percentage:
+                      type: number
+                      format: float
+                      description: Overall percentage achieved in the course.
+                    gpa_grade:
+                      type: string
+                      description: Calculated GPA grade (A, B, C, D, F).
+                    components:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          component_id:
+                            type: integer
+                          component_name:
+                            type: string
+                          max_mark:
+                            type: number
+                            format: float
+                          weight_percentage:
+                            type: number
+                            format: float
+                          mark_obtained:
+                            type: number
+                            format: float
+        '403':
+          description: Access denied (only students and admins can view).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Failed to fetch course summaries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /student-marks:
+    get:
+      summary: Get All Student Marks
+      description: Retrieves a list of all student marks. Accessible to admin; lecturers for their courses; students for their own marks; advisors for their advisees.
+      tags:
+        - Student Marks
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of student marks.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StudentMark'
+        '403':
+          description: Access denied for this role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Add a New Student Mark
+      description: Creates a new student mark. Accessible to lecturers (for their courses) and admin.
+      tags:
+        - Student Marks
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentMark'
+            examples:
+              addMarkExample:
+                value:
+                  enrollment_id: 1
+                  component_id: 10
+                  mark_obtained: 85.5
+      responses:
+        '201':
+          description: Student mark added successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Bad Request (e.g., missing required fields, invalid IDs, mark exceeds max).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not admin or lecturer not assigned to course).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict (e.g., mark already exists for student/component).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /student-marks/{id}:
+    get:
+      summary: Get Student Mark by ID
+      description: Retrieves a single student mark by its ID. Accessible to admin; lecturers for their courses; students for their own marks; advisors for their advisees.
+      tags:
+        - Student Marks
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the student mark to retrieve.
+      responses:
+        '200':
+          description: Student mark data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentMark'
+        '400':
+          description: Invalid mark ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not authorized to view this mark).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Student mark not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: Update a Student Mark
+      description: Updates an existing student mark's information. Accessible to lecturers (for their courses) and admin.
+      tags:
+        - Student Marks
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the student mark to update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentMark'
+            examples:
+              updateMarkObtained:
+                summary: Update Mark Obtained
+                value:
+                  mark_obtained: 92.0
+      responses:
+        '200':
+          description: Student mark updated successfully or no changes made.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Bad Request (e.g., invalid mark ID, no data provided, invalid mark value).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not admin or lecturer not assigned to course).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Student mark not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict (e.g., mark for enrollment/component already exists).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete a Student Mark
+      description: Deletes a student mark. Accessible to lecturers (for their courses) and admin.
+      tags:
+        - Student Marks
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the student mark to delete.
+      responses:
+        '200':
+          description: Student mark deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Invalid mark ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not admin or lecturer not assigned to course).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Student mark not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /student-marks/all/{id}:
+    get:
+      summary: Get All Student Marks by Student ID
+      description: Retrieves all marks for a specific student. Accessible to admin, lecturers (if they teach any course the student is enrolled in), and advisors (if the student is their advisee). Students can view their own marks.
+      tags:
+        - Student Marks
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the student.
+      responses:
+        '200':
+          description: A list of marks for the specified student.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StudentMark'
+        '403':
+          description: Access denied (not authorized to view this student's marks).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Failed to fetch student marks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /student-marks/batch-update:
+    post:
+      summary: Batch Update or Add Student Marks
+      description: Allows for updating or adding multiple student marks in a single request. Accessible to lecturers (for their courses) and admin.
+      tags:
+        - Student Marks
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: object
+                properties:
+                  enrollment_id:
+                    type: integer
+                    description: ID of the enrollment.
+                  assessment_id:
+                    type: integer
+                    description: ID of the assessment component.
+                  mark_obtained:
+                    type: number
+                    format: float
+                    description: Mark obtained by the student.
+                required:
+                  - enrollment_id
+                  - assessment_id
+                  - mark_obtained
+            examples:
+              batchUpdateExample:
+                value:
+                  - enrollment_id: 1
+                    assessment_id: 10
+                    mark_obtained: 88.0
+                  - enrollment_id: 2
+                    assessment_id: 11
+                    mark_obtained: 75.5
+      responses:
+        '200':
+          description: Batch update completed with success and failure counts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Invalid or empty data provided.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (insufficient privileges or not assigned to course).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database transaction failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /remark-requests:
+    get:
+      summary: Get All Remark Requests
+      description: Retrieves a list of all remark requests. Accessible to admin; lecturers for their courses; students for their own requests; advisors for their advisees.
+      tags:
+        - Remark Requests
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of remark requests.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RemarkRequest'
+        '403':
+          description: Access denied for this role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Add a New Remark Request
+      description: Creates a new remark request. Accessible to students (for their own marks).
+      tags:
+        - Remark Requests
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemarkRequest'
+            examples:
+              addRemarkRequestExample:
+                value:
+                  mark_id: 1
+                  justification: "I believe there was an error in grading my essay, as I addressed all rubric points."
+      responses:
+        '201':
+          description: Remark request submitted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Bad Request (e.g., missing required fields, invalid mark ID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (only students can submit).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict (e.g., request for this mark already exists).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /remark-requests/{id}:
+    get:
+      summary: Get Remark Request by ID
+      description: Retrieves a single remark request by its ID. Accessible to admin; lecturers for their courses; students for their own requests; advisors for their advisees.
+      tags:
+        - Remark Requests
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the remark request to retrieve.
+      responses:
+        '200':
+          description: Remark request data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemarkRequest'
+        '400':
+          description: Invalid request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not authorized to view this request).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Remark request not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: Update a Remark Request
+      description: Updates an existing remark request's information. Accessible to admin and lecturers (for their courses). Students cannot update their requests.
+      tags:
+        - Remark Requests
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the remark request to update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemarkRequest'
+            examples:
+              updateStatus:
+                summary: Update Status to Approved
+                value:
+                  status: "approved"
+                  lecturer_notes: "After review, the mark has been adjusted."
+              updateNotes:
+                summary: Add Lecturer Notes
+                value:
+                  lecturer_notes: "Student provided valid points for re-evaluation."
+      responses:
+        '200':
+          description: Remark request updated successfully or no changes made.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Bad Request (e.g., invalid request ID, no data provided, invalid status).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not admin or lecturer not assigned to course, or student attempting to update).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Remark request not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete a Remark Request
+      description: Deletes a remark request. Accessible to admin; students (for their own pending requests); lecturers (for their courses, any status).
+      tags:
+        - Remark Requests
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the remark request to delete.
+      responses:
+        '200':
+          description: Remark request deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Invalid request ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not authorized to delete this request).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Remark request not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /advisor-student:
+    get:
+      summary: Get All Advisor-Student Assignments
+      description: Retrieves a list of all advisor-student assignments. Accessible to admin; advisors can view their own assigned students; students can view their assigned advisor.
+      tags:
+        - Advisor-Student Assignments
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of advisor-student assignments.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdvisorStudent'
+        '403':
+          description: Access denied for this role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Add a New Advisor-Student Assignment
+      description: Creates a new advisor-student assignment. Accessible to admin users only.
+      tags:
+        - Advisor-Student Assignments
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdvisorStudent'
+            examples:
+              addAssignmentExample:
+                value:
+                  advisor_id: 5
+                  student_id: 1
+      responses:
+        '201':
+          description: Advisor-student assignment added successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Bad Request (e.g., missing required fields, invalid IDs).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (admin only).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict (e.g., student already assigned to an advisor).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /advisor-student/{id}:
+    get:
+      summary: Get Advisor-Student Assignment by ID
+      description: Retrieves a single advisor-student assignment by its ID. Accessible to admin; advisors can view their own assigned students; students can view their assigned advisor.
+      tags:
+        - Advisor-Student Assignments
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the advisor-student assignment to retrieve.
+      responses:
+        '200':
+          description: Advisor-student assignment data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdvisorStudent'
+        '400':
+          description: Invalid assignment ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not authorized to view this assignment).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Advisor-student assignment not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: Update an Advisor-Student Assignment
+      description: Updates an existing advisor-student assignment. Accessible to admin users only.
+      tags:
+        - Advisor-Student Assignments
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the advisor-student assignment to update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdvisorStudent'
+            examples:
+              changeAdvisor:
+                summary: Change Advisor for a Student
+                value:
+                  advisor_id: 6
+              changeStudent:
+                summary: Change Student for an Advisor (Rare)
+                value:
+                  student_id: 2
+      responses:
+        '200':
+          description: Advisor-student assignment updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Bad Request (e.g., invalid assignment ID, no data provided, invalid new IDs).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (admin only).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Advisor-student assignment not found or no actual changes made.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict (e.g., new assignment creates a duplicate).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete an Advisor-Student Assignment
+      description: Deletes an advisor-student assignment. Accessible to admin users only.
+      tags:
+        - Advisor-Student Assignments
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the advisor-student assignment to delete.
+      responses:
+        '200':
+          description: Advisor-student assignment deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Invalid assignment ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (admin only).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Advisor-student assignment not found or already deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /advisor-notes:
+    get:
+      summary: Get All Advisor Notes
+      description: Retrieves a list of all advisor notes. Accessible to admin; advisors can view notes they created for their advisees; students can view notes about themselves by their advisor.
+      tags:
+        - Advisor Notes
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of advisor notes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdvisorNote'
+        '403':
+          description: Access denied for this role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Add a New Advisor Note
+      description: Creates a new advisor note. Accessible to admin and advisors (for their advisees).
+      tags:
+        - Advisor Notes
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                student_id:
+                  type: integer
+                  description: ID of the student the note is for.
+                notes:
+                  type: string
+                  description: Content of the advisor note.
+                date:
+                  type: string
+                  format: date
+                  description: Date of the meeting.
+                recommendations:
+                  type: array
+                  items:
+                    type: string
+                  description: List of recommendations.
+                follow_up_required:
+                  type: boolean
+                  description: Whether follow-up is required.
+              required:
+                - student_id
+                - notes
+                - date
+            examples:
+              addNoteExample:
+                value:
+                  student_id: 1
+                  notes: "Discussed academic progress and future course selections."
+                  date: "2024-07-20"
+                  recommendations: ["Review calculus concepts", "Attend career fair"]
+                  follow_up_required: true
+      responses:
+        '201':
+          description: Advisor note added successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Bad Request (e.g., missing required fields, student not assigned to advisor).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (only admins and advisors can add notes).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /advisor-notes/{id}:
+    get:
+      summary: Get Advisor Note by ID
+      description: Retrieves a single advisor note by its ID. Accessible to admin; advisors can view notes they created for their advisees; students can view notes about themselves by their advisor.
+      tags:
+        - Advisor Notes
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the advisor note to retrieve.
+      responses:
+        '200':
+          description: Advisor note data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdvisorNote'
+        '400':
+          description: Invalid note ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not authorized to view this note).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Advisor note not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: Update an Advisor Note
+      description: Updates an existing advisor note's information. Accessible to admin and advisors (for notes they created for their advisees).
+      tags:
+        - Advisor Notes
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the advisor note to update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes:
+                  type: string
+                  description: Updated content of the advisor note.
+                date:
+                  type: string
+                  format: date
+                  description: Updated date of the meeting.
+                recommendations:
+                  type: array
+                  items:
+                    type: string
+                  description: Updated list of recommendations.
+                follow_up_required:
+                  type: boolean
+                  description: Updated follow-up status.
+            examples:
+              updateNoteContent:
+                summary: Update Note Content
+                value:
+                  notes: "Followed up on previous recommendations. Student showed improvement."
+              updateFollowUp:
+                summary: Mark Follow-up Not Required
+                value:
+                  follow_up_required: false
+      responses:
+        '200':
+          description: Advisor note updated successfully or no changes made.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Bad Request (e.g., invalid note ID, no data provided).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not admin or advisor not owning note).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Advisor note not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete an Advisor Note
+      description: Deletes an advisor note. Accessible to admin and advisors (for notes they created for their advisees).
+      tags:
+        - Advisor Notes
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the advisor note to delete.
+      responses:
+        '200':
+          description: Advisor note deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Invalid note ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not admin or advisor not owning note).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Advisor note not found or already deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /notifications:
+    get:
+      summary: Get User Notifications
+      description: Retrieves notifications for the authenticated user. All roles can see their own notifications.
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of notifications for the user.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Notification'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /notifications/{id}/read:
+    put:
+      summary: Mark Notification as Read
+      description: Marks a specific notification as read. Users can only mark their own notifications as read.
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the notification to mark as read.
+      responses:
+        '200':
+          description: Notification marked as read successfully or already read.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Invalid notification ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not authorized to mark this notification as read).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Notification not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /notifications/{id}:
+    delete:
+      summary: Delete a Notification
+      description: Deletes a specific notification. Users can only delete their own notifications.
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: integer
+          required: true
+          description: Numeric ID of the notification to delete.
+      responses:
+        '200':
+          description: Notification deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Invalid notification ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Access denied (not authorized to delete this notification).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Notification not found or already deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Database error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'

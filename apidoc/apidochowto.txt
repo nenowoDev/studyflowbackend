@@ -1,0 +1,2 @@
+Go to https://editor.swagger.io/
+paste apidocumentation.yaml
