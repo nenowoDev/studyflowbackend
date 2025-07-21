@@ -247,6 +247,12 @@ $app->group('/advisor-notes', function ($app) use ($advisorNoteController) {
     $app->delete('/{id}', [$advisorNoteController, 'deleteAdvisorNote']); // Admin, Advisor (own notes for advisee)
 })->add($jwtMiddleware);
 
+// --- Notification Routes ---
+$app->group('/notifications', function ($app) use ($notificationController) {
+    $app->get('', [$notificationController, 'getUserNotifications']); // Get notifications for the authenticated user (all roles can see their own)
+    $app->put('/{id}/read', [$notificationController, 'markNotificationAsRead']); // Mark a specific notification as read (users can only mark their own)
+    $app->delete('/{id}', [$notificationController, 'deleteNotification']);     // Delete a specific notification (users can only delete their own)
+})->add($jwtMiddleware);
 
 // Run the Slim application
 $app->run();

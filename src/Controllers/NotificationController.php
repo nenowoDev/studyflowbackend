@@ -29,16 +29,10 @@ class NotificationController
     {
         $jwt = $request->getAttribute('jwt');
         $userId = $jwt->user_id;
-        $userRole = $jwt->role;
+        $userRole = $jwt->role; // This variable is no longer used for filtering, but kept for context
 
-        $query = "SELECT * FROM notifications";
-        $params = [];
-
-        // Admins can see all notifications, others can only see their own
-        if ($userRole !== 'admin') {
-            $query .= " WHERE user_id = ?";
-            $params[] = $userId;
-        }
+        $query = "SELECT * FROM notifications WHERE user_id = ?"; // Always filter by user_id
+        $params = [$userId]; // Always add the user_id to parameters
 
         $query .= " ORDER BY created_at DESC";
 
@@ -89,7 +83,8 @@ class NotificationController
                 return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
             }
 
-            if ($userRole !== 'admin' && (string) $notification['user_id'] !== (string) $userId) {
+            // Now, all users (including admin) can only mark their *own* notifications as read
+            if ((string) $notification['user_id'] !== (string) $userId) {
                 $response->getBody()->write(json_encode(['error' => 'Access denied: You can only mark your own notifications as read.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             }
@@ -146,7 +141,8 @@ class NotificationController
                 return $response->withStatus(404)->withHeader('Content-Type', 'application/json');
             }
 
-            if ($userRole !== 'admin' && (string) $notification['user_id'] !== (string) $userId) {
+            // Now, all users (including admin) can only delete their *own* notifications
+            if ((string) $notification['user_id'] !== (string) $userId) {
                 $response->getBody()->write(json_encode(['error' => 'Access denied: You can only delete your own notifications.']));
                 return $response->withStatus(403)->withHeader('Content-Type', 'application/json');
             }
