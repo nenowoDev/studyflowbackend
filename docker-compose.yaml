@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: studyflow_backend_app
+    restart: always
+    ports:
+      - "8000:80" # Map host port 8000 to container port 80 (Nginx)
+    volumes:
+      - .:/var/www/html # Mount your local project directory into the container
+    depends_on:
+      - db
+    environment:
+      # These variables are accessed by src/db.php
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: studyflow
+      MYSQL_USER: root       # <--- KEEP THESE for the 'app' service to connect to the DB
+      MYSQL_PASSWORD: adj2425 # <--- KEEP THESE for the 'app' service to connect to the DB
+
+  db:
+    image: mysql:8.0
+    container_name: studyflow_backend_db
+    restart: always
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: your_strong_password_here # <--- THIS IS THE ONLY PASSWORD LINE FOR THE ROOT USER IN DB SERVICE
+      MYSQL_DATABASE: studyflow
+      # !!! CRITICAL: DO NOT PUT MYSQL_USER: root or MYSQL_PASSWORD: adj2425 HERE !!!
+      # The MySQL Docker image will handle 'root' user setup with MYSQL_ROOT_PASSWORD.
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./db_init:/docker-entrypoint-initdb.d # <-- Ensure this directory exists on your host and contains .sql files if you want initial data
+
+volumes:
+  db_data: # Define a named volume for database persistence
